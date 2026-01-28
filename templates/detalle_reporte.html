@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detalle de Reporte</title>
+</head>
+<body>
+    <div class="detalle-container">
+        <h2 style="margin-bottom: 20px; color: #667eea;">
+            🏨 Habitación {{ reporte[1] }}
+        </h2>
+
+        <div class="detail-row">
+            <div class="detail-label">Camarera</div>
+            <div class="detail-value">{{ reporte[3] }}</div>
+        </div>
+
+        <div class="detail-row">
+            <div class="detail-label">Fecha y Hora</div>
+            <div class="detail-value">{{ reporte[4] }} - {{ reporte[5] }}</div>
+        </div>
+
+        <div class="detail-row">
+            <div class="detail-label">Tareas Realizadas</div>
+            <ul class="tareas-list">
+                {% for tarea in reporte[7].split(', ') %}
+                <li>{{ tarea }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+
+        <div class="detail-row">
+            <div class="detail-label">Estado</div>
+            <div class="detail-value">
+                {% if reporte[8] == 'Limpia y lista' %}
+                    <span class="status-badge limpia">🟢 {{ reporte[8] }}</span>
+                {% elif reporte[8] == 'Limpia con observaciones' %}
+                    <span class="status-badge observaciones">🟡 {{ reporte[8] }}</span>
+                {% else %}
+                    <span class="status-badge mantenimiento">🔴 {{ reporte[8] }}</span>
+                {% endif %}
+            </div>
+        </div>
+
+        {% if reporte[9] %}
+        <div class="detail-row">
+            <div class="detail-label">Observaciones</div>
+            <div class="detail-value">{{ reporte[9] }}</div>
+        </div>
+        {% endif %}
+
+        {% if reporte[10] %}
+        <div class="detail-row">
+            <div class="detail-label">Fotografía</div>
+            <img src="/uploads/{{ reporte[10] }}" class="modal-image" alt="Foto de la habitación">
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>

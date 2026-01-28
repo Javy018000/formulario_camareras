@@ -1,0 +1,47 @@
+/* Estilos globales compartidos */
+:root {
+    --primary: #667eea;
+    --primary-dark: #5568d3;
+    --secondary: #764ba2;
+    --success: #4caf50;
+    --warning: #ff9800;
+    --danger: #f44336;
+    --light: #f5f7fa;
+    --white: #ffffff;
+    --text: #333333;
+    --text-light: #666666;
+    --border: #e0e0e0;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--light);
+    color: var(--text);
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+/* Utilidades */
+.text-center { text-align: center; }
+.text-primary { color: var(--primary); }
+.text-success { color: var(--success); }
+.text-danger { color: var(--danger); }
+
+.mb-10 { margin-bottom: 10px; }
+.mb-20 { margin-bottom: 20px; }
+.mb-30 { margin-bottom: 30px; }
+
+.mt-10 { margin-top: 10px; }
+.mt-20 { margin-top: 20px; }
+.mt-30 { margin-top: 30px; }

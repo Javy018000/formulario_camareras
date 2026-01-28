@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seleccionar Habitación</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            padding-bottom: 80px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 22px;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        .logout-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .container {
+            padding: 20px;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .search-box {
+            margin-bottom: 20px;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+        }
+
+        .piso-section {
+            margin-bottom: 25px;
+        }
+
+        .piso-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #667eea;
+            margin-bottom: 12px;
+            padding-left: 5px;
+        }
+
+        .habitaciones-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 10px;
+        }
+
+        .habitacion-btn {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            color: #333;
+        }
+
+        .habitacion-btn:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+        }
+
+        .habitacion-num {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .habitacion-tipo {
+            font-size: 12px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <button class="logout-btn" onclick="location.href='/logout'">Salir</button>
+        <h1>Hola, {{ session.nombre }}</h1>
+        <p>Selecciona la habitación a limpiar</p>
+    </div>
+
+    <div class="container">
+        <div class="search-box">
+            <input type="text" id="buscar" placeholder="🔍 Buscar habitación..." onkeyup="filtrarHabitaciones()">
+        </div>
+
+        {% set pisos = {} %}
+        {% for hab in habitaciones %}
+            {% set piso = hab[1] %}
+            {% if piso not in pisos %}
+                {% set _ = pisos.update({piso: []}) %}
+            {% endif %}
+            {% set _ = pisos[piso].append(hab) %}
+        {% endfor %}
+
+        {% for piso in pisos|sort %}
+        <div class="piso-section" data-piso="{{ piso }}">
+            <div class="piso-title">Piso {{ piso }}</div>
+            <div class="habitaciones-grid">
+                {% for hab in pisos[piso] %}
+                <a href="/limpiar?hab={{ hab[0] }}" class="habitacion-btn" data-numero="{{ hab[0] }}">
+                    <div class="habitacion-num">{{ hab[0] }}</div>
+                    <div class="habitacion-tipo">{{ hab[2] }}</div>
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <script>
+        function filtrarHabitaciones() {
+            const busqueda = document.getElementById('buscar').value.toLowerCase();
+            const botones = document.querySelectorAll('.habitacion-btn');
+
+            botones.forEach(btn => {
+                const numero = btn.dataset.numero.toLowerCase();
+                if (numero.includes(busqueda)) {
+                    btn.style.display = '';
+                } else {
+                    btn.style.display = 'none';
+                }
+            });
+        }
+    </script>
+</body>
+</html>
