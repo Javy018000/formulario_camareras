@@ -129,6 +129,9 @@
         {% endif %}
 
         <form method="POST">
+            {% if next_url %}
+            <input type="hidden" name="next" value="{{ next_url }}">
+            {% endif %}
             <div class="form-group">
                 <label for="usuario">Usuario</label>
                 <input type="text" id="usuario" name="usuario" required autofocus>
@@ -144,6 +147,7 @@
 
         <div class="info-box">
             <strong>Usuarios de prueba:</strong><br>
+            Admin: <code>admin</code> / <code>admin123</code><br>
             Jefa: <code>jefa</code> / <code>123456</code><br>
             Camareras: <code>maria</code> / <code>1234</code>
         </div>

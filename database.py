@@ -55,6 +55,7 @@ def init_db():
     cursor.execute("SELECT COUNT(*) FROM usuarios")
     if cursor.fetchone()[0] == 0:
         usuarios_default = [
+            ('Administrador', 'admin', 'admin123', 'admin'),
             ('Jefa de Área', 'jefa', '123456', 'jefa'),
             ('María González', 'maria', '1234', 'camarera'),
             ('Ana López', 'ana', '1234', 'camarera'),
@@ -195,6 +196,114 @@ def obtener_estadisticas_hoy():
         'pendientes': total_habitaciones - limpias,
         'con_observaciones': con_observaciones
     }
+
+# ==================== FUNCIONES ADMIN ====================
+
+def obtener_usuarios():
+    """Obtiene todos los usuarios"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, nombre, usuario, password, rol, activo FROM usuarios ORDER BY id')
+    usuarios = cursor.fetchall()
+    conn.close()
+    return usuarios
+
+def crear_usuario(nombre, usuario, password, rol):
+    """Crea un nuevo usuario"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO usuarios (nombre, usuario, password, rol) VALUES (?, ?, ?, ?)',
+        (nombre, usuario, password, rol)
+    )
+    conn.commit()
+    conn.close()
+
+def actualizar_usuario(id, nombre, usuario, password, rol):
+    """Actualiza un usuario existente"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    if password:
+        cursor.execute(
+            'UPDATE usuarios SET nombre = ?, usuario = ?, password = ?, rol = ? WHERE id = ?',
+            (nombre, usuario, password, rol, id)
+        )
+    else:
+        cursor.execute(
+            'UPDATE usuarios SET nombre = ?, usuario = ?, rol = ? WHERE id = ?',
+            (nombre, usuario, rol, id)
+        )
+    conn.commit()
+    conn.close()
+
+def eliminar_usuario(id):
+    """Desactiva un usuario"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE usuarios SET activo = 0 WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+
+def obtener_todas_habitaciones():
+    """Obtiene todas las habitaciones (activas e inactivas)"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT id, numero, piso, tipo, activa FROM habitaciones ORDER BY numero')
+    habitaciones = cursor.fetchall()
+    conn.close()
+    return habitaciones
+
+def crear_habitacion(numero, piso, tipo):
+    """Crea una nueva habitación"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        'INSERT INTO habitaciones (numero, piso, tipo) VALUES (?, ?, ?)',
+        (numero, piso, tipo)
+    )
+    conn.commit()
+    conn.close()
+
+def actualizar_habitacion(id, numero, piso, tipo):
+    """Actualiza una habitación existente"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        'UPDATE habitaciones SET numero = ?, piso = ?, tipo = ? WHERE id = ?',
+        (numero, piso, tipo, id)
+    )
+    conn.commit()
+    conn.close()
+
+def eliminar_habitacion(id):
+    """Desactiva una habitación"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('UPDATE habitaciones SET activa = 0 WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+
+def obtener_todos_reportes():
+    """Obtiene todos los reportes"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT id, habitacion_numero, camarera_nombre, fecha, hora_inicio,
+               estado, observaciones, foto_path
+        FROM reportes
+        ORDER BY fecha DESC, hora_inicio DESC
+    ''')
+    reportes = cursor.fetchall()
+    conn.close()
+    return reportes
+
+def eliminar_reporte(id):
+    """Elimina un reporte"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM reportes WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
 
 # Inicializar la base de datos al importar el módulo
 if __name__ == '__main__':

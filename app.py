@@ -25,7 +25,9 @@ def allowed_file(filename):
 @app.route('/')
 def index():
     if 'usuario_id' in session:
-        if session['rol'] == 'jefa':
+        if session['rol'] == 'admin':
+            return redirect(url_for('admin_panel'))
+        elif session['rol'] == 'jefa':
             return redirect(url_for('dashboard'))
         else:
             return redirect(url_for('seleccionar_habitacion'))
@@ -33,6 +35,8 @@ def index():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    next_url = request.args.get('next', '') or request.form.get('next', '')
+
     if request.method == 'POST':
         usuario = request.form['usuario']
         password = request.form['password']
@@ -44,14 +48,18 @@ def login():
             session['nombre'] = resultado[1]
             session['rol'] = resultado[2]
 
-            if resultado[2] == 'jefa':
+            if next_url:
+                return redirect(next_url)
+            elif resultado[2] == 'admin':
+                return redirect(url_for('admin_panel'))
+            elif resultado[2] == 'jefa':
                 return redirect(url_for('dashboard'))
             else:
                 return redirect(url_for('seleccionar_habitacion'))
         else:
-            return render_template('login.html', error='Usuario o contraseña incorrectos')
+            return render_template('login.html', error='Usuario o contraseña incorrectos', next_url=next_url)
 
-    return render_template('login.html')
+    return render_template('login.html', next_url=next_url)
 
 @app.route('/logout')
 def logout():
@@ -71,7 +79,7 @@ def seleccionar_habitacion():
 @app.route('/limpiar')
 def formulario_limpieza():
     if 'usuario_id' not in session or session['rol'] != 'camarera':
-        return redirect(url_for('login'))
+        return redirect(url_for('login', next=request.url))
 
     habitacion = request.args.get('hab', '')
     if not habitacion:
@@ -156,6 +164,96 @@ def detalle_reporte(reporte_id):
 
     reporte = db.obtener_reporte_detalle(reporte_id)
     return render_template('detalle_reporte.html', reporte=reporte)
+
+# ==================== RUTAS PARA ADMIN ====================
+
+@app.route('/admin')
+def admin_panel():
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return redirect(url_for('login'))
+
+    usuarios = db.obtener_usuarios()
+    habitaciones = db.obtener_todas_habitaciones()
+    reportes = db.obtener_todos_reportes()
+    return render_template('admin.html',
+                         usuarios=usuarios,
+                         habitaciones=habitaciones,
+                         reportes=reportes)
+
+@app.route('/admin/usuarios/crear', methods=['POST'])
+def admin_crear_usuario():
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return jsonify({'error': 'No autorizado'}), 401
+    try:
+        db.crear_usuario(
+            request.form['nombre'],
+            request.form['usuario'],
+            request.form['password'],
+            request.form['rol']
+        )
+        return redirect(url_for('admin_panel'))
+    except Exception as e:
+        return redirect(url_for('admin_panel', error=str(e)))
+
+@app.route('/admin/usuarios/editar/<int:id>', methods=['POST'])
+def admin_editar_usuario(id):
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return jsonify({'error': 'No autorizado'}), 401
+    db.actualizar_usuario(
+        id,
+        request.form['nombre'],
+        request.form['usuario'],
+        request.form.get('password', ''),
+        request.form['rol']
+    )
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/usuarios/eliminar/<int:id>', methods=['POST'])
+def admin_eliminar_usuario(id):
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return jsonify({'error': 'No autorizado'}), 401
+    db.eliminar_usuario(id)
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/habitaciones/crear', methods=['POST'])
+def admin_crear_habitacion():
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return jsonify({'error': 'No autorizado'}), 401
+    try:
+        db.crear_habitacion(
+            request.form['numero'],
+            int(request.form['piso']),
+            request.form['tipo']
+        )
+        return redirect(url_for('admin_panel'))
+    except Exception as e:
+        return redirect(url_for('admin_panel', error=str(e)))
+
+@app.route('/admin/habitaciones/editar/<int:id>', methods=['POST'])
+def admin_editar_habitacion(id):
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return jsonify({'error': 'No autorizado'}), 401
+    db.actualizar_habitacion(
+        id,
+        request.form['numero'],
+        int(request.form['piso']),
+        request.form['tipo']
+    )
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/habitaciones/eliminar/<int:id>', methods=['POST'])
+def admin_eliminar_habitacion(id):
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return jsonify({'error': 'No autorizado'}), 401
+    db.eliminar_habitacion(id)
+    return redirect(url_for('admin_panel'))
+
+@app.route('/admin/reportes/eliminar/<int:id>', methods=['POST'])
+def admin_eliminar_reporte(id):
+    if 'usuario_id' not in session or session['rol'] != 'admin':
+        return jsonify({'error': 'No autorizado'}), 401
+    db.eliminar_reporte(id)
+    return redirect(url_for('admin_panel'))
 
 # ==================== SERVIR ARCHIVOS ESTÁTICOS ====================
 
