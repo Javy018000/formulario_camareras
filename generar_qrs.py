@@ -11,10 +11,13 @@ def generar_qrs():
     if not os.path.exists(qr_folder):
         os.makedirs(qr_folder)
 
-    # Obtener IP local
+    # Usar dominio local (requiere dns_server.py activo en el servidor)
+    DOMINIO = "camarerasshbi.com"
+    base_url = f"http://{DOMINIO}:3000/limpiar?hab="
+
+    # Tambien mostrar la IP como referencia
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
-    base_url = f"http://{local_ip}:3000/limpiar?hab="
 
     print("\n" + "="*60)
     print("🔲 GENERADOR DE CÓDIGOS QR")
