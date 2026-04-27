@@ -273,6 +273,7 @@
             <div class="card">
                 <h2>Crear Nuevo Usuario</h2>
                 <form action="/admin/usuarios/crear" method="POST">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <div class="form-row">
                         <div class="form-group">
                             <label>Nombre completo</label>
@@ -283,8 +284,8 @@
                             <input type="text" name="usuario" required placeholder="Ej: laura">
                         </div>
                         <div class="form-group">
-                            <label>Contrasena</label>
-                            <input type="text" name="password" required placeholder="Contrasena">
+                            <label>Contraseña</label>
+                            <input type="password" name="password" required placeholder="Contraseña">
                         </div>
                         <div class="form-group">
                             <label>Rol</label>
@@ -308,7 +309,6 @@
                             <th>ID</th>
                             <th>Nombre</th>
                             <th>Usuario</th>
-                            <th>Contrasena</th>
                             <th>Rol</th>
                             <th>Estado</th>
                             <th>Acciones</th>
@@ -320,18 +320,17 @@
                             <td>{{ u[0] }}</td>
                             <td>{{ u[1] }}</td>
                             <td><code>{{ u[2] }}</code></td>
-                            <td><code>{{ u[3] }}</code></td>
                             <td>
-                                {% if u[4] == 'admin' %}
+                                {% if u[3] == 'admin' %}
                                     <span class="badge badge-admin">Admin</span>
-                                {% elif u[4] == 'jefa' %}
+                                {% elif u[3] == 'jefa' %}
                                     <span class="badge badge-jefa">Jefa</span>
                                 {% else %}
                                     <span class="badge badge-camarera">Camarera</span>
                                 {% endif %}
                             </td>
                             <td>
-                                {% if u[5] == 1 %}
+                                {% if u[4] == 1 %}
                                     <span class="badge badge-activo">Activo</span>
                                 {% else %}
                                     <span class="badge badge-inactivo">Inactivo</span>
@@ -339,9 +338,10 @@
                             </td>
                             <td>
                                 <div class="actions">
-                                    <button class="btn btn-edit btn-sm" onclick="editarUsuario({{ u[0] }}, '{{ u[1] }}', '{{ u[2] }}', '{{ u[4] }}')">Editar</button>
-                                    {% if u[5] == 1 %}
+                                    <button class="btn btn-edit btn-sm" onclick="editarUsuario({{ u[0] }}, '{{ u[1] }}', '{{ u[2] }}', '{{ u[3] }}')">Editar</button>
+                                    {% if u[4] == 1 %}
                                     <form action="/admin/usuarios/eliminar/{{ u[0] }}" method="POST" style="display:inline" onsubmit="return confirm('Desactivar usuario {{ u[1] }}?')">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-danger btn-sm">Desactivar</button>
                                     </form>
                                     {% endif %}
@@ -360,6 +360,7 @@
             <div class="card">
                 <h2>Crear Nueva Habitacion</h2>
                 <form action="/admin/habitaciones/crear" method="POST">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <div class="form-row">
                         <div class="form-group">
                             <label>Numero</label>
@@ -415,6 +416,7 @@
                                     <button class="btn btn-edit btn-sm" onclick="editarHabitacion({{ h[0] }}, '{{ h[1] }}', {{ h[2] }}, '{{ h[3] }}')">Editar</button>
                                     {% if h[4] == 1 %}
                                     <form action="/admin/habitaciones/eliminar/{{ h[0] }}" method="POST" style="display:inline" onsubmit="return confirm('Desactivar habitacion {{ h[1] }}?')">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                         <button type="submit" class="btn btn-danger btn-sm">Desactivar</button>
                                     </form>
                                     {% endif %}
@@ -465,6 +467,7 @@
                             <td>{{ r[6][:40] if r[6] else '-' }}</td>
                             <td>
                                 <form action="/admin/reportes/eliminar/{{ r[0] }}" method="POST" style="display:inline" onsubmit="return confirm('Eliminar reporte #{{ r[0] }}?')">
+                                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger btn-sm">Eliminar</button>
                                 </form>
                             </td>
@@ -487,6 +490,7 @@
             <span class="modal-close" onclick="cerrarModal('modalEditarUsuario')">&times;</span>
             <h3>Editar Usuario</h3>
             <form id="formEditarUsuario" method="POST">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group" style="margin-bottom:12px">
                     <label>Nombre completo</label>
                     <input type="text" name="nombre" id="edit-nombre" required>
@@ -496,8 +500,8 @@
                     <input type="text" name="usuario" id="edit-usuario" required>
                 </div>
                 <div class="form-group" style="margin-bottom:12px">
-                    <label>Nueva contrasena (dejar vacio para no cambiar)</label>
-                    <input type="text" name="password" id="edit-password">
+                    <label>Nueva contraseña (dejar vacío para no cambiar)</label>
+                    <input type="password" name="password" id="edit-password">
                 </div>
                 <div class="form-group" style="margin-bottom:12px">
                     <label>Rol</label>
@@ -518,6 +522,7 @@
             <span class="modal-close" onclick="cerrarModal('modalEditarHabitacion')">&times;</span>
             <h3>Editar Habitacion</h3>
             <form id="formEditarHabitacion" method="POST">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group" style="margin-bottom:12px">
                     <label>Numero</label>
                     <input type="text" name="numero" id="edit-hab-numero" required>

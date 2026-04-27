@@ -1,11 +1,22 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from werkzeug.utils import secure_filename
 import os
+import secrets
 from datetime import datetime
+from functools import wraps
+from urllib.parse import urlparse
 import database as db
 
 app = Flask(__name__)
-app.secret_key = 'tu_clave_secreta_aqui_cambiala'  # Cámbiala por cualquier texto aleatorio
+
+# SECRET_KEY desde variable de entorno; si no está configurada, genera una temporal
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    _secret_key = secrets.token_hex(32)
+    print("\n⚠️  SECRET_KEY no configurada. Se generó una temporal.")
+    print("   Las sesiones no sobreviven reinicios del servidor.")
+    print("   Para fijarla: set SECRET_KEY=<texto_aleatorio_largo>\n")
+app.secret_key = _secret_key
 
 # Configuración de uploads
 UPLOAD_FOLDER = 'uploads'
@@ -13,12 +24,44 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
-# Crear carpeta de uploads si no existe
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def is_safe_redirect(url):
+    """Verifica que la URL sea interna para evitar open redirect."""
+    if not url:
+        return False
+    parsed = urlparse(url)
+    return not parsed.netloc and not parsed.scheme and url.startswith('/')
+
+
+# ==================== CSRF ====================
+
+def get_csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+app.jinja_env.globals['csrf_token'] = get_csrf_token
+
+def csrf_required(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if request.method == 'POST':
+            token = (request.form.get('_csrf_token') or
+                     request.headers.get('X-CSRF-Token'))
+            if not token or token != session.get('_csrf_token'):
+                if request.content_type and 'multipart' in request.content_type:
+                    return jsonify({'success': False, 'error': 'Solicitud inválida'}), 403
+                return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    return wrapper
+
 
 # ==================== RUTAS DE LOGIN ====================
 
@@ -33,9 +76,12 @@ def index():
             return redirect(url_for('seleccionar_habitacion'))
     return redirect(url_for('login'))
 
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     next_url = request.args.get('next', '') or request.form.get('next', '')
+    if not is_safe_redirect(next_url):
+        next_url = ''
 
     if request.method == 'POST':
         usuario = request.form['usuario']
@@ -61,10 +107,12 @@ def login():
 
     return render_template('login.html', next_url=next_url)
 
+
 @app.route('/logout')
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
 
 # ==================== RUTAS PARA CAMARERAS ====================
 
@@ -75,6 +123,7 @@ def seleccionar_habitacion():
 
     habitaciones = db.obtener_habitaciones()
     return render_template('seleccionar_habitacion.html', habitaciones=habitaciones)
+
 
 @app.route('/limpiar')
 def formulario_limpieza():
@@ -87,19 +136,20 @@ def formulario_limpieza():
 
     return render_template('formulario.html', habitacion=habitacion)
 
+
 @app.route('/guardar-reporte', methods=['POST'])
+@csrf_required
 def guardar_reporte():
     if 'usuario_id' not in session or session['rol'] != 'camarera':
         return jsonify({'success': False, 'error': 'No autorizado'}), 401
 
     try:
-        # Obtener datos del formulario
         habitacion = request.form['habitacion']
         tareas = request.form.getlist('tareas[]')
         estado = request.form['estado']
         observaciones = request.form.get('observaciones', '')
+        hora_inicio = request.form.get('hora_inicio', datetime.now().strftime('%H:%M:%S'))
 
-        # Manejar foto si existe
         foto_path = ''
         if 'foto' in request.files:
             file = request.files['foto']
@@ -111,13 +161,13 @@ def guardar_reporte():
                 file.save(filepath)
                 foto_path = filename
 
-        # Preparar datos para guardar
         datos = {
             'habitacion': habitacion,
             'camarera_id': session['usuario_id'],
             'camarera_nombre': session['nombre'],
             'fecha': datetime.now().strftime('%Y-%m-%d'),
-            'hora_inicio': datetime.now().strftime('%H:%M:%S'),
+            'hora_inicio': hora_inicio,
+            'hora_fin': datetime.now().strftime('%H:%M:%S'),
             'tareas': ', '.join(tareas),
             'estado': estado,
             'observaciones': observaciones,
@@ -135,6 +185,7 @@ def guardar_reporte():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+
 # ==================== RUTAS PARA JEFA ====================
 
 @app.route('/dashboard')
@@ -146,8 +197,9 @@ def dashboard():
     reportes = db.obtener_reportes_hoy()
 
     return render_template('dashboard.html',
-                         estadisticas=estadisticas,
-                         reportes=reportes)
+                           estadisticas=estadisticas,
+                           reportes=reportes)
+
 
 @app.route('/api/reportes-hoy')
 def api_reportes_hoy():
@@ -155,7 +207,16 @@ def api_reportes_hoy():
         return jsonify({'error': 'No autorizado'}), 401
 
     reportes = db.obtener_reportes_hoy()
-    return jsonify({'reportes': reportes})
+    return jsonify({'reportes': [list(r) for r in reportes]})
+
+
+@app.route('/api/estadisticas-hoy')
+def api_estadisticas_hoy():
+    if 'usuario_id' not in session or session['rol'] != 'jefa':
+        return jsonify({'error': 'No autorizado'}), 401
+
+    return jsonify(db.obtener_estadisticas_hoy())
+
 
 @app.route('/detalle-reporte/<int:reporte_id>')
 def detalle_reporte(reporte_id):
@@ -164,6 +225,7 @@ def detalle_reporte(reporte_id):
 
     reporte = db.obtener_reporte_detalle(reporte_id)
     return render_template('detalle_reporte.html', reporte=reporte)
+
 
 # ==================== RUTAS PARA ADMIN ====================
 
@@ -176,11 +238,13 @@ def admin_panel():
     habitaciones = db.obtener_todas_habitaciones()
     reportes = db.obtener_todos_reportes()
     return render_template('admin.html',
-                         usuarios=usuarios,
-                         habitaciones=habitaciones,
-                         reportes=reportes)
+                           usuarios=usuarios,
+                           habitaciones=habitaciones,
+                           reportes=reportes)
+
 
 @app.route('/admin/usuarios/crear', methods=['POST'])
+@csrf_required
 def admin_crear_usuario():
     if 'usuario_id' not in session or session['rol'] != 'admin':
         return jsonify({'error': 'No autorizado'}), 401
@@ -195,7 +259,9 @@ def admin_crear_usuario():
     except Exception as e:
         return redirect(url_for('admin_panel', error=str(e)))
 
+
 @app.route('/admin/usuarios/editar/<int:id>', methods=['POST'])
+@csrf_required
 def admin_editar_usuario(id):
     if 'usuario_id' not in session or session['rol'] != 'admin':
         return jsonify({'error': 'No autorizado'}), 401
@@ -208,14 +274,18 @@ def admin_editar_usuario(id):
     )
     return redirect(url_for('admin_panel'))
 
+
 @app.route('/admin/usuarios/eliminar/<int:id>', methods=['POST'])
+@csrf_required
 def admin_eliminar_usuario(id):
     if 'usuario_id' not in session or session['rol'] != 'admin':
         return jsonify({'error': 'No autorizado'}), 401
     db.eliminar_usuario(id)
     return redirect(url_for('admin_panel'))
 
+
 @app.route('/admin/habitaciones/crear', methods=['POST'])
+@csrf_required
 def admin_crear_habitacion():
     if 'usuario_id' not in session or session['rol'] != 'admin':
         return jsonify({'error': 'No autorizado'}), 401
@@ -229,7 +299,9 @@ def admin_crear_habitacion():
     except Exception as e:
         return redirect(url_for('admin_panel', error=str(e)))
 
+
 @app.route('/admin/habitaciones/editar/<int:id>', methods=['POST'])
+@csrf_required
 def admin_editar_habitacion(id):
     if 'usuario_id' not in session or session['rol'] != 'admin':
         return jsonify({'error': 'No autorizado'}), 401
@@ -241,19 +313,24 @@ def admin_editar_habitacion(id):
     )
     return redirect(url_for('admin_panel'))
 
+
 @app.route('/admin/habitaciones/eliminar/<int:id>', methods=['POST'])
+@csrf_required
 def admin_eliminar_habitacion(id):
     if 'usuario_id' not in session or session['rol'] != 'admin':
         return jsonify({'error': 'No autorizado'}), 401
     db.eliminar_habitacion(id)
     return redirect(url_for('admin_panel'))
 
+
 @app.route('/admin/reportes/eliminar/<int:id>', methods=['POST'])
+@csrf_required
 def admin_eliminar_reporte(id):
     if 'usuario_id' not in session or session['rol'] != 'admin':
         return jsonify({'error': 'No autorizado'}), 401
     db.eliminar_reporte(id)
     return redirect(url_for('admin_panel'))
+
 
 # ==================== SERVIR ARCHIVOS ESTÁTICOS ====================
 
@@ -261,15 +338,16 @@ from flask import send_from_directory
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
+    if 'usuario_id' not in session:
+        return redirect(url_for('login'))
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 
 # ==================== INICIAR SERVIDOR ====================
 
 if __name__ == '__main__':
-    # Inicializar base de datos
     db.init_db()
 
-    # Obtener IP local
     import socket
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
@@ -286,5 +364,5 @@ if __name__ == '__main__':
     print("   Camareras: usuario=maria/ana/carmen, password=1234")
     print("="*50 + "\n")
 
-    # Iniciar servidor
-    app.run(host='0.0.0.0', port=3000, debug=True)
+    debug_mode = os.getenv('FLASK_DEBUG', '').lower() in ('1', 'true')
+    app.run(host='0.0.0.0', port=3000, debug=debug_mode)

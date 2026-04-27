@@ -577,9 +577,39 @@
             }
         }
 
-        // Auto-refresh cada 30 segundos
-        setInterval(() => {
-            location.reload();
+        // Auto-refresh cada 30 segundos via API (sin recargar la página completa)
+        setInterval(async () => {
+            try {
+                const [statsRes, reportesRes] = await Promise.all([
+                    fetch('/api/estadisticas-hoy'),
+                    fetch('/api/reportes-hoy')
+                ]);
+
+                if (statsRes.status === 401 || reportesRes.status === 401) {
+                    location.href = '/login';
+                    return;
+                }
+
+                const stats = await statsRes.json();
+                const data = await reportesRes.json();
+
+                // Actualizar contadores
+                const valores = document.querySelectorAll('.stat-value');
+                if (valores.length >= 4) {
+                    valores[0].textContent = stats.total;
+                    valores[1].textContent = stats.limpias;
+                    valores[2].textContent = stats.pendientes;
+                    valores[3].textContent = stats.con_observaciones;
+                }
+
+                // Si llegaron nuevos reportes, recargar la tabla completa
+                const filas = document.querySelectorAll('#tablaReportes tbody tr');
+                if (data.reportes && data.reportes.length !== filas.length) {
+                    location.reload();
+                }
+            } catch (e) {
+                // Error de red: no hacer nada, reintentar en 30s
+            }
         }, 30000);
     </script>
 </body>

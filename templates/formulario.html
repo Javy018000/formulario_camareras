@@ -259,6 +259,8 @@
 
         <form id="formLimpieza">
             <input type="hidden" name="habitacion" value="{{ habitacion }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="hora_inicio" id="hora_inicio">
 
             <!-- Tareas realizadas -->
             <div class="card">
@@ -348,6 +350,15 @@
     </div>
 
     <script>
+        // Registrar hora de inicio cuando la camarera abre el formulario
+        document.addEventListener('DOMContentLoaded', function() {
+            const now = new Date();
+            const hh = String(now.getHours()).padStart(2, '0');
+            const mm = String(now.getMinutes()).padStart(2, '0');
+            const ss = String(now.getSeconds()).padStart(2, '0');
+            document.getElementById('hora_inicio').value = `${hh}:${mm}:${ss}`;
+        });
+
         function previewImage(event) {
             const preview = document.getElementById('preview');
             const file = event.target.files[0];
