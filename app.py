@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
+from PIL import Image, ImageOps, UnidentifiedImageError
 import os
 import secrets
 import sys
@@ -37,6 +38,9 @@ app.secret_key = _secret_key
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+MAX_IMAGE_SIDE = 1920
+IMAGE_JPEG_QUALITY = 85
+IMAGE_RESAMPLE_FILTER = getattr(Image, 'Resampling', Image).LANCZOS
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
@@ -50,6 +54,36 @@ db.init_db()
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def save_optimized_image(file, filename_prefix):
+    if not file or not file.filename or not allowed_file(file.filename):
+        return ''
+
+    original_name = secure_filename(file.filename)
+    base_name = os.path.splitext(original_name)[0] or 'foto'
+    safe_prefix = secure_filename(str(filename_prefix)) or 'foto'
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"{safe_prefix}_{timestamp}_{base_name}.jpg"
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+    try:
+        image = Image.open(file.stream)
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), IMAGE_RESAMPLE_FILTER)
+
+        if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+            background = Image.new('RGB', image.size, (255, 255, 255))
+            alpha = image.convert('RGBA').getchannel('A')
+            background.paste(image.convert('RGBA'), mask=alpha)
+            image = background
+        else:
+            image = image.convert('RGB')
+
+        image.save(filepath, 'JPEG', quality=IMAGE_JPEG_QUALITY, optimize=True, progressive=True)
+        return filename
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValueError('La foto no se pudo leer. Sube una imagen JPG, PNG o GIF válida.') from exc
 
 
 def is_safe_redirect(url):
@@ -326,12 +360,7 @@ def huesped_novedad():
             foto_path = ''
             if 'foto' in request.files:
                 file = request.files['foto']
-                if file and file.filename and allowed_file(file.filename):
-                    filename = secure_filename(file.filename)
-                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                    filename = f"NOV{huesped['hab']}_{timestamp}_{filename}"
-                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-                    foto_path = filename
+                foto_path = save_optimized_image(file, f"NOV{huesped['hab']}")
 
             novedad_id = db.crear_novedad({
                 'habitacion': huesped['hab'],
@@ -390,13 +419,7 @@ def guardar_reporte():
         foto_path = ''
         if 'foto' in request.files:
             file = request.files['foto']
-            if file and file.filename and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                filename = f"{habitacion}_{timestamp}_{filename}"
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                file.save(filepath)
-                foto_path = filename
+            foto_path = save_optimized_image(file, habitacion)
 
         datos = {
             'habitacion': habitacion,
