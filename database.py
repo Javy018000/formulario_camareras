@@ -1,8 +1,11 @@
+import os
 import sqlite3
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DB_NAME = 'hotel_limpieza.db'
+# Ruta absoluta: en hosting (WSGI) el directorio de trabajo no es el del proyecto
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_NAME = os.path.join(BASE_DIR, 'hotel_limpieza.db')
 
 # Rooms: número → cantidad de camas (determina tipo: 2=Doble, 3=Triple, 4=Suite)
 _ROOMS = {

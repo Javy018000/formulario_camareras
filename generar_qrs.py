@@ -28,12 +28,19 @@ def obtener_ips_locales():
 
 
 def generar_qrs_con_host(host):
-    """Genera codigos QR para todas las habitaciones usando el host dado"""
+    """Genera codigos QR para todas las habitaciones usando el host dado.
+
+    Acepta un host local ("192.168.1.10", "camarerasshbi.com") o una URL
+    completa de hosting ("https://usuario.pythonanywhere.com").
+    """
     qr_folder = 'static/qrs'
     if not os.path.exists(qr_folder):
         os.makedirs(qr_folder)
 
-    base_url = f"http://{host}:{PUERTO}/limpiar?hab="
+    if host.startswith('http://') or host.startswith('https://'):
+        base_url = f"{host.rstrip('/')}/limpiar?hab="
+    else:
+        base_url = f"http://{host}:{PUERTO}/limpiar?hab="
 
     habitaciones = obtener_habitaciones()
     total = len(habitaciones)
@@ -85,6 +92,10 @@ def menu():
     idx_manual = len(ips) + 2
     print(f"  {idx_manual}) Escribir IP manualmente")
 
+    # Opcion hosting publico
+    idx_hosting = len(ips) + 3
+    print(f"  {idx_hosting}) URL de hosting publico (ej: https://usuario.pythonanywhere.com)")
+
     print()
     opcion = input("  Elige una opcion: ").strip()
 
@@ -93,6 +104,8 @@ def menu():
         host = DOMINIO
     elif opcion == str(idx_manual):
         host = input("  Escribe la IP: ").strip()
+    elif opcion == str(idx_hosting):
+        host = input("  Escribe la URL completa (con https://): ").strip()
     else:
         try:
             idx = int(opcion) - 2

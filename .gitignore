@@ -8,6 +8,10 @@ venv/
 # Base de datos
 *.db
 
+# Datos de ocupación (contienen cédulas de huéspedes)
+ocupacion_cache.csv
+ocupacion_cache.meta.json
+
 # Uploads
 uploads/
 

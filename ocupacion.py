@@ -19,8 +19,10 @@ SHEET_ID = os.environ.get('OCUPACION_SHEET_ID', '13shOHOXjY2TAKCp3FA-48pn4tXGuS0
 SHEET_GID = os.environ.get('OCUPACION_SHEET_GID', '392110803')
 CSV_URL = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={SHEET_GID}'
 
-CACHE_FILE = 'ocupacion_cache.csv'
-META_FILE = 'ocupacion_cache.meta.json'
+# Rutas absolutas: en hosting (WSGI) el directorio de trabajo no es el del proyecto
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CACHE_FILE = os.path.join(_BASE_DIR, 'ocupacion_cache.csv')
+META_FILE = os.path.join(_BASE_DIR, 'ocupacion_cache.meta.json')
 TTL_SEGUNDOS = 300  # refrescar desde Google como máximo cada 5 minutos
 
 _lock = threading.Lock()

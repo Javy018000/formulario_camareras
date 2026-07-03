@@ -1,0 +1,6 @@
+flask
+requests
+qrcode
+pillow
+openpyxl
+dnslib

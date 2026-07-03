@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 import os
 import secrets
 import sys
@@ -19,6 +20,10 @@ import ocupacion
 
 app = Flask(__name__)
 
+# Detrás de un hosting/proxy (PythonAnywhere, etc.) la IP real del cliente
+# llega en X-Forwarded-For; sin esto el rate-limit vería la IP del proxy.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
 # SECRET_KEY desde variable de entorno; si no está configurada, genera una temporal
 _secret_key = os.environ.get('SECRET_KEY')
 if not _secret_key:
@@ -28,14 +33,19 @@ if not _secret_key:
     print("   Para fijarla: set SECRET_KEY=<texto_aleatorio_largo>\n")
 app.secret_key = _secret_key
 
-# Configuración de uploads
-UPLOAD_FOLDER = 'uploads'
+# Configuración de uploads (ruta absoluta: en WSGI el cwd no es el proyecto)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
+
+# En hosting (WSGI) el bloque __main__ no se ejecuta: inicializar aquí.
+# init_db es idempotente (solo crea lo que falte y migra roles).
+db.init_db()
 
 
 def allowed_file(filename):
@@ -71,6 +81,28 @@ def csrf_required(f):
                 return redirect(url_for('login'))
         return f(*args, **kwargs)
     return wrapper
+
+
+# ==================== RATE LIMITING (por IP) ====================
+
+_intentos_fallidos = {}      # (ámbito, ip) → [timestamps de intentos fallidos]
+VENTANA_INTENTOS = 10 * 60   # ventana de 10 minutos
+
+
+def _ip_bloqueada(ambito, ip, maximo):
+    ahora = time.time()
+    clave = (ambito, ip)
+    intentos = [t for t in _intentos_fallidos.get(clave, []) if ahora - t < VENTANA_INTENTOS]
+    _intentos_fallidos[clave] = intentos
+    return len(intentos) >= maximo
+
+
+def _registrar_fallo(ambito, ip):
+    _intentos_fallidos.setdefault((ambito, ip), []).append(time.time())
+
+
+def _limpiar_fallos(ambito, ip):
+    _intentos_fallidos.pop((ambito, ip), None)
 
 
 # ==================== ROLES ====================
@@ -142,12 +174,19 @@ def login():
         next_url = ''
 
     if request.method == 'POST':
+        ip = request.remote_addr or '?'
+        if _ip_bloqueada('login', ip, 10):
+            return render_template('login.html',
+                                   error='Demasiados intentos fallidos. Espera unos minutos.',
+                                   next_url=next_url)
+
         usuario = request.form['usuario']
         password = request.form['password']
 
         resultado = db.verificar_usuario(usuario, password)
 
         if resultado:
+            _limpiar_fallos('login', ip)
             session['usuario_id'] = resultado[0]
             session['nombre'] = resultado[1]
             session['rol'] = resultado[2]
@@ -157,6 +196,7 @@ def login():
                 return redirect(next_url)
             return redirect(destino_por_rol(resultado[2]))
         else:
+            _registrar_fallo('login', ip)
             return render_template('login.html', error='Usuario o contraseña incorrectos', next_url=next_url)
 
     return render_template('login.html', next_url=next_url)
@@ -214,9 +254,6 @@ def quien_eres():
 # ==================== PORTAL DEL HUÉSPED ====================
 
 GUEST_SESSION_TTL = 30 * 60      # 30 min de sesión de huésped
-_intentos_fallidos = {}          # ip → [timestamps de intentos fallidos]
-MAX_INTENTOS = 8
-VENTANA_INTENTOS = 10 * 60
 
 CATEGORIAS_NOVEDAD = {
     'mantenimiento': ['Fuga de agua', 'Luz / Electricidad', 'Aire acondicionado',
@@ -224,17 +261,6 @@ CATEGORIAS_NOVEDAD = {
     'aseo': ['Limpieza de habitación', 'Limpieza de baño', 'Cambio de sábanas',
              'Toallas / Amenidades', 'Basura', 'Otro'],
 }
-
-
-def _ip_bloqueada(ip):
-    ahora = time.time()
-    intentos = [t for t in _intentos_fallidos.get(ip, []) if ahora - t < VENTANA_INTENTOS]
-    _intentos_fallidos[ip] = intentos
-    return len(intentos) >= MAX_INTENTOS
-
-
-def _registrar_fallo(ip):
-    _intentos_fallidos.setdefault(ip, []).append(time.time())
 
 
 def _huesped_actual():
@@ -256,13 +282,13 @@ def huesped_validar():
     error = None
     if request.method == 'POST':
         ip = request.remote_addr or '?'
-        if _ip_bloqueada(ip):
+        if _ip_bloqueada('huesped', ip, 8):
             error = 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.'
         else:
             cedula = request.form.get('cedula', '').strip()
             huesped = ocupacion.validar_huesped(cedula, habitacion)
             if huesped:
-                _intentos_fallidos.pop(ip, None)
+                _limpiar_fallos('huesped', ip)
                 session['huesped'] = {
                     'cedula': huesped['cedula'],
                     'hab': habitacion,
@@ -270,7 +296,7 @@ def huesped_validar():
                     'ts': time.time(),
                 }
                 return redirect(url_for('huesped_novedad'))
-            _registrar_fallo(ip)
+            _registrar_fallo('huesped', ip)
             error = ('No encontramos esa cédula registrada en la habitación '
                      f'{habitacion}. Verifica el número o acércate a recepción.')
 
