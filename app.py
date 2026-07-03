@@ -2,10 +2,20 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from werkzeug.utils import secure_filename
 import os
 import secrets
+import sys
+import time
+
+# Consolas Windows con cp1252 fallan al imprimir emojis
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 from datetime import datetime
 from functools import wraps
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 import database as db
+import ocupacion
 
 app = Flask(__name__)
 
@@ -63,17 +73,65 @@ def csrf_required(f):
     return wrapper
 
 
+# ==================== ROLES ====================
+# Jerarquía: superadmin > hotelero > jefa / jefe_mantenimiento > camarera / mantenimiento
+# ('admin' se mantiene como alias de superadmin por compatibilidad)
+
+ROLES_SUPER = ('superadmin', 'admin')
+ROLES_HOTEL = ('hotelero',) + ROLES_SUPER                    # ve ambas áreas
+ROLES_DASHBOARD = ('jefa',) + ROLES_HOTEL                    # dashboard de limpieza
+ROLES_AREA_ASEO = ('camarera', 'jefa') + ROLES_HOTEL         # novedades de aseo
+ROLES_AREA_MANT = ('mantenimiento', 'jefe_mantenimiento') + ROLES_HOTEL
+
+ROLES_VALIDOS = ('camarera', 'jefa', 'mantenimiento', 'jefe_mantenimiento',
+                 'hotelero', 'superadmin')
+
+
+def areas_visibles(rol):
+    """Áreas de novedades que puede ver un rol."""
+    areas = []
+    if rol in ROLES_AREA_MANT:
+        areas.append('mantenimiento')
+    if rol in ROLES_AREA_ASEO:
+        areas.append('aseo')
+    return areas
+
+
+def destino_por_rol(rol):
+    """Página de inicio según el rol."""
+    if rol in ROLES_SUPER:
+        return url_for('admin_panel')
+    if rol == 'hotelero':
+        return url_for('panel_hotel')
+    if rol == 'jefa':
+        return url_for('dashboard')
+    if rol in ('mantenimiento', 'jefe_mantenimiento'):
+        return url_for('novedades')
+    return url_for('seleccionar_habitacion')
+
+
+def roles_required(*roles):
+    """Exige sesión iniciada con uno de los roles dados."""
+    def decorador(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            if 'usuario_id' not in session:
+                if request.method == 'GET':
+                    return redirect(url_for('login', next=request.full_path.rstrip('?')))
+                return redirect(url_for('login'))
+            if session.get('rol') not in roles:
+                return redirect(url_for('index'))
+            return f(*args, **kwargs)
+        return wrapper
+    return decorador
+
+
 # ==================== RUTAS DE LOGIN ====================
 
 @app.route('/')
 def index():
     if 'usuario_id' in session:
-        if session['rol'] == 'admin':
-            return redirect(url_for('admin_panel'))
-        elif session['rol'] == 'jefa':
-            return redirect(url_for('dashboard'))
-        else:
-            return redirect(url_for('seleccionar_habitacion'))
+        return redirect(destino_por_rol(session['rol']))
     return redirect(url_for('login'))
 
 
@@ -93,15 +151,11 @@ def login():
             session['usuario_id'] = resultado[0]
             session['nombre'] = resultado[1]
             session['rol'] = resultado[2]
+            session['usuario_login'] = usuario
 
             if next_url:
                 return redirect(next_url)
-            elif resultado[2] == 'admin':
-                return redirect(url_for('admin_panel'))
-            elif resultado[2] == 'jefa':
-                return redirect(url_for('dashboard'))
-            else:
-                return redirect(url_for('seleccionar_habitacion'))
+            return redirect(destino_por_rol(resultado[2]))
         else:
             return render_template('login.html', error='Usuario o contraseña incorrectos', next_url=next_url)
 
@@ -117,24 +171,181 @@ def logout():
 # ==================== RUTAS PARA CAMARERAS ====================
 
 @app.route('/seleccionar-habitacion')
+@roles_required('camarera')
 def seleccionar_habitacion():
-    if 'usuario_id' not in session or session['rol'] != 'camarera':
-        return redirect(url_for('login'))
-
     habitaciones = db.obtener_habitaciones()
-    return render_template('seleccionar_habitacion.html', habitaciones=habitaciones)
+    novedades_aseo = db.contar_novedades_abiertas()['aseo']
+    return render_template('seleccionar_habitacion.html',
+                           habitaciones=habitaciones,
+                           novedades_aseo=novedades_aseo)
 
 
 @app.route('/limpiar')
 def formulario_limpieza():
-    if 'usuario_id' not in session or session['rol'] != 'camarera':
-        return redirect(url_for('login', next=request.url))
+    """Punto de entrada de los QR pegados en las puertas.
 
+    Camarera con sesión → formulario de limpieza directo.
+    Cualquier otra persona → pantalla de elección camarera/huésped.
+    """
     habitacion = request.args.get('hab', '')
-    if not habitacion:
-        return redirect(url_for('seleccionar_habitacion'))
 
-    return render_template('formulario.html', habitacion=habitacion)
+    if 'usuario_id' in session and session['rol'] == 'camarera':
+        if not habitacion:
+            return redirect(url_for('seleccionar_habitacion'))
+        return render_template('formulario.html', habitacion=habitacion)
+
+    if not habitacion:
+        return redirect(url_for('login'))
+    return redirect(url_for('quien_eres', hab=habitacion))
+
+
+@app.route('/qr')
+def quien_eres():
+    """Pantalla que pregunta si quien escaneó el QR es camarera o huésped."""
+    habitacion = request.args.get('hab', '').strip()
+    if not habitacion or not db.habitacion_existe(habitacion):
+        return redirect(url_for('login'))
+    next_camarera = quote(f'/limpiar?hab={habitacion}', safe='')
+    return render_template('quien_eres.html',
+                           habitacion=habitacion,
+                           next_camarera=next_camarera)
+
+
+# ==================== PORTAL DEL HUÉSPED ====================
+
+GUEST_SESSION_TTL = 30 * 60      # 30 min de sesión de huésped
+_intentos_fallidos = {}          # ip → [timestamps de intentos fallidos]
+MAX_INTENTOS = 8
+VENTANA_INTENTOS = 10 * 60
+
+CATEGORIAS_NOVEDAD = {
+    'mantenimiento': ['Fuga de agua', 'Luz / Electricidad', 'Aire acondicionado',
+                      'Televisor / WiFi', 'Cerradura / Puerta', 'Mobiliario', 'Otro'],
+    'aseo': ['Limpieza de habitación', 'Limpieza de baño', 'Cambio de sábanas',
+             'Toallas / Amenidades', 'Basura', 'Otro'],
+}
+
+
+def _ip_bloqueada(ip):
+    ahora = time.time()
+    intentos = [t for t in _intentos_fallidos.get(ip, []) if ahora - t < VENTANA_INTENTOS]
+    _intentos_fallidos[ip] = intentos
+    return len(intentos) >= MAX_INTENTOS
+
+
+def _registrar_fallo(ip):
+    _intentos_fallidos.setdefault(ip, []).append(time.time())
+
+
+def _huesped_actual():
+    """Datos del huésped validado en sesión, o None si expiró."""
+    h = session.get('huesped')
+    if not h or time.time() - h.get('ts', 0) > GUEST_SESSION_TTL:
+        session.pop('huesped', None)
+        return None
+    return h
+
+
+@app.route('/huesped/validar', methods=['GET', 'POST'])
+@csrf_required
+def huesped_validar():
+    habitacion = (request.args.get('hab') or request.form.get('hab') or '').strip()
+    if not habitacion or not db.habitacion_existe(habitacion):
+        return redirect(url_for('login'))
+
+    error = None
+    if request.method == 'POST':
+        ip = request.remote_addr or '?'
+        if _ip_bloqueada(ip):
+            error = 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.'
+        else:
+            cedula = request.form.get('cedula', '').strip()
+            huesped = ocupacion.validar_huesped(cedula, habitacion)
+            if huesped:
+                _intentos_fallidos.pop(ip, None)
+                session['huesped'] = {
+                    'cedula': huesped['cedula'],
+                    'hab': habitacion,
+                    'nombre': huesped['nombre'],
+                    'ts': time.time(),
+                }
+                return redirect(url_for('huesped_novedad'))
+            _registrar_fallo(ip)
+            error = ('No encontramos esa cédula registrada en la habitación '
+                     f'{habitacion}. Verifica el número o acércate a recepción.')
+
+    return render_template('huesped_validar.html', habitacion=habitacion, error=error)
+
+
+@app.route('/huesped/novedad', methods=['GET', 'POST'])
+@csrf_required
+def huesped_novedad():
+    huesped = _huesped_actual()
+    if not huesped:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        try:
+            area = request.form.get('area', '')
+            categoria = request.form.get('categoria', '').strip()
+            descripcion = request.form.get('descripcion', '').strip()
+
+            if area not in CATEGORIAS_NOVEDAD:
+                return jsonify({'success': False, 'error': 'Selecciona el tipo de novedad'}), 400
+            if categoria not in CATEGORIAS_NOVEDAD[area]:
+                return jsonify({'success': False, 'error': 'Selecciona una categoría válida'}), 400
+            if len(descripcion) < 5:
+                return jsonify({'success': False, 'error': 'Describe brevemente el problema'}), 400
+
+            foto_path = ''
+            if 'foto' in request.files:
+                file = request.files['foto']
+                if file and file.filename and allowed_file(file.filename):
+                    filename = secure_filename(file.filename)
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    filename = f"NOV{huesped['hab']}_{timestamp}_{filename}"
+                    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+                    foto_path = filename
+
+            novedad_id = db.crear_novedad({
+                'habitacion': huesped['hab'],
+                'area': area,
+                'categoria': categoria,
+                'descripcion': descripcion,
+                'huesped_nombre': huesped['nombre'],
+                'huesped_cedula': huesped['cedula'],
+                'foto_path': foto_path,
+            })
+
+            return jsonify({'success': True,
+                            'redirect': url_for('huesped_gracias', novedad_id=novedad_id)})
+        except Exception as e:
+            return jsonify({'success': False, 'error': str(e)}), 500
+
+    anteriores = db.obtener_novedades_habitacion(huesped['hab'])
+    return render_template('huesped_novedad.html',
+                           huesped=huesped,
+                           categorias=CATEGORIAS_NOVEDAD,
+                           anteriores=anteriores)
+
+
+@app.route('/huesped/gracias/<int:novedad_id>')
+def huesped_gracias(novedad_id):
+    huesped = _huesped_actual()
+    if not huesped:
+        return redirect(url_for('login'))
+    novedad = db.obtener_novedad(novedad_id)
+    if not novedad or novedad[1] != huesped['hab']:
+        return redirect(url_for('huesped_novedad'))
+    return render_template('huesped_exito.html', novedad=novedad, huesped=huesped)
+
+
+@app.route('/huesped/salir')
+def huesped_salir():
+    huesped = session.pop('huesped', None)
+    if huesped:
+        return redirect(url_for('quien_eres', hab=huesped['hab']))
+    return redirect(url_for('login'))
 
 
 @app.route('/guardar-reporte', methods=['POST'])
@@ -186,24 +397,70 @@ def guardar_reporte():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+# ==================== MI CUENTA (camareras) ====================
+
+@app.route('/mi-cuenta', methods=['GET', 'POST'])
+@csrf_required
+def mi_cuenta():
+    if 'usuario_id' not in session:
+        return redirect(url_for('login'))
+
+    error = None
+    exito = None
+
+    if request.method == 'POST':
+        password_actual = request.form.get('password_actual', '')
+        nuevo_usuario   = request.form.get('nuevo_usuario', '').strip()
+        nueva_password  = request.form.get('nueva_password', '')
+        confirmar       = request.form.get('confirmar_password', '')
+
+        if not db.verificar_password_por_id(session['usuario_id'], password_actual):
+            error = 'La contraseña actual es incorrecta.'
+        elif not nuevo_usuario:
+            error = 'El nombre de usuario no puede estar vacío.'
+        elif nueva_password and nueva_password != confirmar:
+            error = 'Las contraseñas nuevas no coinciden.'
+        elif nueva_password and len(nueva_password) < 4:
+            error = 'La contraseña debe tener al menos 4 caracteres.'
+        else:
+            usuario_cambio   = nuevo_usuario if nuevo_usuario != session.get('usuario_login') else None
+            password_cambio  = nueva_password if nueva_password else None
+
+            try:
+                db.cambiar_credenciales(
+                    session['usuario_id'],
+                    nuevo_usuario=nuevo_usuario,
+                    nueva_password=password_cambio
+                )
+                session['usuario_login'] = nuevo_usuario
+                exito = 'Datos actualizados correctamente.'
+            except Exception:
+                error = 'Ese nombre de usuario ya está en uso, elige otro.'
+
+    return render_template('mi_cuenta.html',
+                           error=error,
+                           exito=exito,
+                           usuario_actual=session.get('usuario_login', ''))
+
+
 # ==================== RUTAS PARA JEFA ====================
 
 @app.route('/dashboard')
+@roles_required(*ROLES_DASHBOARD)
 def dashboard():
-    if 'usuario_id' not in session or session['rol'] != 'jefa':
-        return redirect(url_for('login'))
-
     estadisticas = db.obtener_estadisticas_hoy()
     reportes = db.obtener_reportes_hoy()
+    novedades_aseo = db.contar_novedades_abiertas()['aseo']
 
     return render_template('dashboard.html',
                            estadisticas=estadisticas,
-                           reportes=reportes)
+                           reportes=reportes,
+                           novedades_aseo=novedades_aseo)
 
 
 @app.route('/api/reportes-hoy')
 def api_reportes_hoy():
-    if 'usuario_id' not in session or session['rol'] != 'jefa':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_DASHBOARD:
         return jsonify({'error': 'No autorizado'}), 401
 
     reportes = db.obtener_reportes_hoy()
@@ -212,26 +469,118 @@ def api_reportes_hoy():
 
 @app.route('/api/estadisticas-hoy')
 def api_estadisticas_hoy():
-    if 'usuario_id' not in session or session['rol'] != 'jefa':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_DASHBOARD:
         return jsonify({'error': 'No autorizado'}), 401
 
     return jsonify(db.obtener_estadisticas_hoy())
 
 
 @app.route('/detalle-reporte/<int:reporte_id>')
+@roles_required(*ROLES_DASHBOARD)
 def detalle_reporte(reporte_id):
-    if 'usuario_id' not in session or session['rol'] != 'jefa':
-        return redirect(url_for('login'))
-
     reporte = db.obtener_reporte_detalle(reporte_id)
     return render_template('detalle_reporte.html', reporte=reporte)
+
+
+# ==================== NOVEDADES (personal) ====================
+
+ROLES_NOVEDADES = tuple(set(ROLES_AREA_ASEO) | set(ROLES_AREA_MANT))
+
+
+def _puede_gestionar(rol, area):
+    if area == 'aseo':
+        return rol in ROLES_AREA_ASEO
+    if area == 'mantenimiento':
+        return rol in ROLES_AREA_MANT
+    return False
+
+
+@app.route('/novedades')
+@roles_required(*ROLES_NOVEDADES)
+def novedades():
+    rol = session['rol']
+    areas = areas_visibles(rol)
+
+    filtro = request.args.get('estado', 'abiertas')
+    if filtro not in ('abiertas', 'todas', 'pendiente', 'en_proceso', 'resuelta'):
+        filtro = 'abiertas'
+
+    area_filtro = request.args.get('area', '')
+    areas_consulta = [area_filtro] if area_filtro in areas else areas
+
+    lista = db.obtener_novedades(areas_consulta, filtro)
+    stats = db.estadisticas_novedades()
+
+    # Botón "volver" según el rol (mantenimiento vive en esta página)
+    volver = {
+        'camarera': url_for('seleccionar_habitacion'),
+        'jefa': url_for('dashboard'),
+        'hotelero': url_for('panel_hotel'),
+        'superadmin': url_for('admin_panel'),
+        'admin': url_for('admin_panel'),
+    }.get(rol)
+
+    return render_template('novedades.html',
+                           novedades=lista,
+                           areas=areas,
+                           area_filtro=area_filtro,
+                           filtro=filtro,
+                           stats=stats,
+                           volver=volver)
+
+
+@app.route('/novedades/<int:novedad_id>/estado', methods=['POST'])
+@csrf_required
+@roles_required(*ROLES_NOVEDADES)
+def novedad_cambiar_estado(novedad_id):
+    novedad = db.obtener_novedad(novedad_id)
+    if not novedad or not _puede_gestionar(session['rol'], novedad[2]):
+        return redirect(url_for('novedades'))
+
+    estado = request.form.get('estado', '')
+    if estado in ('pendiente', 'en_proceso', 'resuelta'):
+        nota = request.form.get('nota', '').strip()
+        db.cambiar_estado_novedad(novedad_id, estado, session['nombre'], nota)
+
+    return redirect(url_for('novedades',
+                            estado=request.form.get('filtro', 'abiertas'),
+                            area=request.form.get('area_filtro', '')))
+
+
+@app.route('/api/novedades-abiertas')
+def api_novedades_abiertas():
+    if 'usuario_id' not in session or session['rol'] not in ROLES_NOVEDADES:
+        return jsonify({'error': 'No autorizado'}), 401
+    conteo = db.contar_novedades_abiertas()
+    visibles = {a: conteo[a] for a in areas_visibles(session['rol'])}
+    visibles['total'] = sum(visibles.values())
+    return jsonify(visibles)
+
+
+# ==================== PANEL DEL HOTELERO ====================
+
+@app.route('/panel-hotel')
+@roles_required(*ROLES_HOTEL)
+def panel_hotel():
+    estadisticas = db.obtener_estadisticas_hoy()
+    stats_novedades = db.estadisticas_novedades()
+    reportes = db.obtener_reportes_hoy()[:8]
+    ultimas_novedades = db.obtener_novedades(['aseo', 'mantenimiento'], 'abiertas')[:8]
+    fuente = ocupacion.estado_datos()
+
+    return render_template('panel_hotel.html',
+                           estadisticas=estadisticas,
+                           stats_novedades=stats_novedades,
+                           reportes=reportes,
+                           ultimas_novedades=ultimas_novedades,
+                           fuente=fuente)
 
 
 # ==================== RUTAS PARA ADMIN ====================
 
 @app.route('/admin')
 def admin_panel():
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return redirect(url_for('login'))
 
     usuarios = db.obtener_usuarios()
@@ -246,8 +595,10 @@ def admin_panel():
 @app.route('/admin/usuarios/crear', methods=['POST'])
 @csrf_required
 def admin_crear_usuario():
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
+    if request.form['rol'] not in ROLES_VALIDOS:
+        return redirect(url_for('admin_panel', error='Rol inválido'))
     try:
         db.crear_usuario(
             request.form['nombre'],
@@ -263,8 +614,10 @@ def admin_crear_usuario():
 @app.route('/admin/usuarios/editar/<int:id>', methods=['POST'])
 @csrf_required
 def admin_editar_usuario(id):
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
+    if request.form['rol'] not in ROLES_VALIDOS:
+        return redirect(url_for('admin_panel', error='Rol inválido'))
     db.actualizar_usuario(
         id,
         request.form['nombre'],
@@ -278,7 +631,7 @@ def admin_editar_usuario(id):
 @app.route('/admin/usuarios/eliminar/<int:id>', methods=['POST'])
 @csrf_required
 def admin_eliminar_usuario(id):
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
     db.eliminar_usuario(id)
     return redirect(url_for('admin_panel'))
@@ -287,7 +640,7 @@ def admin_eliminar_usuario(id):
 @app.route('/admin/habitaciones/crear', methods=['POST'])
 @csrf_required
 def admin_crear_habitacion():
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
     try:
         db.crear_habitacion(
@@ -303,7 +656,7 @@ def admin_crear_habitacion():
 @app.route('/admin/habitaciones/editar/<int:id>', methods=['POST'])
 @csrf_required
 def admin_editar_habitacion(id):
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
     db.actualizar_habitacion(
         id,
@@ -317,7 +670,7 @@ def admin_editar_habitacion(id):
 @app.route('/admin/habitaciones/eliminar/<int:id>', methods=['POST'])
 @csrf_required
 def admin_eliminar_habitacion(id):
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
     db.eliminar_habitacion(id)
     return redirect(url_for('admin_panel'))
@@ -326,7 +679,7 @@ def admin_eliminar_habitacion(id):
 @app.route('/admin/reportes/eliminar/<int:id>', methods=['POST'])
 @csrf_required
 def admin_eliminar_reporte(id):
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
     db.eliminar_reporte(id)
     return redirect(url_for('admin_panel'))
@@ -359,9 +712,13 @@ if __name__ == '__main__':
     print(f"📱 Acceso por IP:  http://{local_ip}:3000")
     print(f"💻 Acceso local:   http://localhost:3000")
     print("="*50)
-    print("\n👥 USUARIOS DE PRUEBA:")
-    print("   Jefa: usuario=jefa, password=123456")
-    print("   Camareras: usuario=maria/ana/carmen, password=1234")
+    print("\n👥 ROLES DEL SISTEMA:")
+    print("   superadmin → gestiona usuarios, roles y todo el sistema")
+    print("   hotelero   → ve limpieza + novedades de ambas áreas")
+    print("   jefa       → dashboard de limpieza + novedades de aseo")
+    print("   jefe_mantenimiento / mantenimiento → novedades de mantenimiento")
+    print("   camarera   → formularios de limpieza + novedades de aseo")
+    print("   Huéspedes: escanean el QR y validan con su cédula (Google Sheet)")
     print("="*50 + "\n")
 
     debug_mode = os.getenv('FLASK_DEBUG', '').lower() in ('1', 'true')

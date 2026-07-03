@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novedad Enviada</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 40px 30px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+        }
+
+        .icono { font-size: 70px; margin-bottom: 15px; }
+
+        h1 { color: #333; font-size: 24px; margin-bottom: 10px; }
+
+        .folio {
+            display: inline-block;
+            background: #e6fcf5;
+            color: #0ca678;
+            font-size: 18px;
+            font-weight: 700;
+            padding: 10px 24px;
+            border-radius: 12px;
+            margin: 15px 0;
+            letter-spacing: 1px;
+        }
+
+        .mensaje { color: #666; font-size: 15px; line-height: 1.6; margin-bottom: 25px; }
+
+        .detalle {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 25px;
+            text-align: left;
+            font-size: 14px;
+            color: #555;
+        }
+
+        .detalle div { padding: 4px 0; }
+        .detalle strong { color: #333; }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            margin-bottom: 12px;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover { transform: translateY(-2px); }
+
+        .btn-primario {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+        }
+
+        .btn-secundario {
+            background: #f0f0f0;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icono">✅</div>
+        <h1>¡Novedad enviada!</h1>
+        <div class="folio">Folio NV-{{ '%04d'|format(novedad[0]) }}</div>
+
+        <p class="mensaje">
+            {% if novedad[2] == 'mantenimiento' %}
+                🔧 El equipo de <strong>mantenimiento</strong> ha sido notificado
+                y atenderá tu solicitud lo antes posible.
+            {% else %}
+                🧹 El equipo de <strong>aseo y camareras</strong> ha sido notificado
+                y atenderá tu solicitud lo antes posible.
+            {% endif %}
+        </p>
+
+        <div class="detalle">
+            <div><strong>Habitación:</strong> {{ novedad[1] }}</div>
+            <div><strong>Categoría:</strong> {{ novedad[3] }}</div>
+            <div><strong>Fecha:</strong> {{ novedad[7] }} a las {{ novedad[8][:5] }}</div>
+        </div>
+
+        <a href="/huesped/novedad" class="btn btn-primario">Reportar otra novedad</a>
+        <a href="/huesped/salir" class="btn btn-secundario">Finalizar</a>
+    </div>
+</body>
+</html>

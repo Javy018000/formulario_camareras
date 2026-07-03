@@ -37,17 +37,28 @@
             opacity: 0.9;
         }
 
-        .logout-btn {
+        .header-btns {
             position: absolute;
             top: 20px;
             right: 20px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .header-btn {
             background: rgba(255,255,255,0.2);
             color: white;
             border: none;
-            padding: 8px 15px;
+            padding: 8px 14px;
             border-radius: 20px;
             font-size: 13px;
             cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .header-btn:hover {
+            background: rgba(255,255,255,0.35);
         }
 
         .container {
@@ -119,12 +130,24 @@
 </head>
 <body>
     <div class="header">
-        <button class="logout-btn" onclick="location.href='/logout'">Salir</button>
+        <div class="header-btns">
+            <a href="/mi-cuenta" class="header-btn">⚙️ Mi cuenta</a>
+            <a href="/logout" class="header-btn">Salir</a>
+        </div>
         <h1>Hola, {{ session.nombre }}</h1>
         <p>Selecciona la habitación a limpiar</p>
     </div>
 
     <div class="container">
+        {% if novedades_aseo %}
+        <a href="/novedades" style="display:block; background:#fff3cd; color:#856404;
+           padding:14px 18px; border-radius:12px; margin-bottom:20px; text-decoration:none;
+           font-weight:600; border-left:4px solid #ffc107;">
+            🔔 Hay {{ novedades_aseo }} novedad{{ 'es' if novedades_aseo != 1 }} de aseo
+            reportada{{ 's' if novedades_aseo != 1 }} por huéspedes — toca para ver
+        </a>
+        {% endif %}
+
         <div class="search-box">
             <input type="text" id="buscar" placeholder="🔍 Buscar habitación..." onkeyup="filtrarHabitaciones()">
         </div>

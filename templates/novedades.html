@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Novedades - Hotel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            padding-bottom: 60px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header h1 { font-size: 24px; }
+        .header p { font-size: 14px; opacity: 0.9; margin-top: 4px; }
+
+        .header-btns { display: flex; gap: 8px; }
+
+        .header-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            padding: 9px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .header-btn:hover { background: rgba(255,255,255,0.35); }
+
+        .container { max-width: 900px; margin: 0 auto; padding: 20px; }
+
+        /* Stats */
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .stat-chip {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .stat-chip .num { font-size: 26px; font-weight: 700; color: #333; }
+        .stat-chip .lbl { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        .stat-chip.pendientes { border-left: 4px solid #ffc107; }
+        .stat-chip.proceso { border-left: 4px solid #339af0; }
+        .stat-chip.resueltas { border-left: 4px solid #40c057; }
+
+        /* Filtros */
+        .filtros {
+            background: white;
+            border-radius: 12px;
+            padding: 14px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filtro-btn {
+            padding: 8px 16px;
+            border: 2px solid #e0e0e0;
+            background: white;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            text-decoration: none;
+            color: #555;
+            transition: all 0.2s;
+        }
+
+        .filtro-btn:hover { border-color: #667eea; }
+        .filtro-btn.activo { background: #667eea; color: white; border-color: #667eea; }
+
+        .filtro-sep { color: #ddd; margin: 0 4px; }
+
+        /* Tarjetas de novedad */
+        .novedad-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            border-left: 5px solid #ccc;
+        }
+
+        .novedad-card.mantenimiento { border-left-color: #fd7e14; }
+        .novedad-card.aseo { border-left-color: #667eea; }
+
+        .novedad-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .novedad-hab { font-size: 20px; font-weight: 700; color: #333; }
+
+        .folio { color: #aaa; font-size: 12px; font-weight: 400; margin-left: 6px; }
+
+        .area-chip {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        .area-chip.mantenimiento { background: #fff4e6; color: #e8590c; }
+        .area-chip.aseo { background: #f0f4ff; color: #5568d3; }
+
+        .estado-badge {
+            display: inline-block;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .estado-pendiente { background: #fff3cd; color: #856404; }
+        .estado-en_proceso { background: #cce5ff; color: #004085; }
+        .estado-resuelta { background: #d4edda; color: #155724; }
+
+        .novedad-cat { font-weight: 600; color: #444; margin-bottom: 5px; }
+        .novedad-desc { color: #666; font-size: 14px; line-height: 1.5; margin-bottom: 10px; }
+
+        .novedad-meta { font-size: 12px; color: #999; margin-bottom: 12px; }
+
+        .novedad-gestion {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            color: #666;
+            margin-bottom: 12px;
+        }
+
+        .acciones { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .btn {
+            padding: 9px 18px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-proceso { background: #339af0; color: white; }
+        .btn-proceso:hover { background: #1c7ed6; }
+        .btn-resolver { background: #40c057; color: white; }
+        .btn-resolver:hover { background: #2f9e44; }
+        .btn-foto { background: #f0f0f0; color: #555; text-decoration: none; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; }
+        .btn-foto:hover { background: #e0e0e0; }
+
+        .empty-state { text-align: center; padding: 60px 20px; color: #999; }
+        .empty-state .icono { font-size: 60px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div>
+                <h1>🔔 Novedades</h1>
+                <p>{{ session.nombre }}</p>
+            </div>
+            <div class="header-btns">
+                {% if volver %}
+                <a href="{{ volver }}" class="header-btn">← Volver a mi panel</a>
+                {% endif %}
+                <a href="/logout" class="header-btn">Cerrar sesión</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Estadísticas de las áreas visibles -->
+        {% set pend = namespace(v=0) %}
+        {% set proc = namespace(v=0) %}
+        {% set res = namespace(v=0) %}
+        {% for a in areas %}
+            {% set pend.v = pend.v + stats[a]['pendiente'] %}
+            {% set proc.v = proc.v + stats[a]['en_proceso'] %}
+            {% set res.v = res.v + stats[a]['resueltas_hoy'] %}
+        {% endfor %}
+
+        <div class="stats-row">
+            <div class="stat-chip pendientes">
+                <div class="num">{{ pend.v }}</div>
+                <div class="lbl">Pendientes</div>
+            </div>
+            <div class="stat-chip proceso">
+                <div class="num">{{ proc.v }}</div>
+                <div class="lbl">En proceso</div>
+            </div>
+            <div class="stat-chip resueltas">
+                <div class="num">{{ res.v }}</div>
+                <div class="lbl">Resueltas hoy</div>
+            </div>
+        </div>
+
+        <!-- Filtros -->
+        <div class="filtros">
+            <a href="/novedades?estado=abiertas&area={{ area_filtro }}"
+               class="filtro-btn {{ 'activo' if filtro == 'abiertas' }}">Abiertas</a>
+            <a href="/novedades?estado=resuelta&area={{ area_filtro }}"
+               class="filtro-btn {{ 'activo' if filtro == 'resuelta' }}">Resueltas</a>
+            <a href="/novedades?estado=todas&area={{ area_filtro }}"
+               class="filtro-btn {{ 'activo' if filtro == 'todas' }}">Todas</a>
+
+            {% if areas|length > 1 %}
+            <span class="filtro-sep">|</span>
+            <a href="/novedades?estado={{ filtro }}"
+               class="filtro-btn {{ 'activo' if not area_filtro }}">Ambas áreas</a>
+            <a href="/novedades?estado={{ filtro }}&area=mantenimiento"
+               class="filtro-btn {{ 'activo' if area_filtro == 'mantenimiento' }}">🔧 Mantenimiento</a>
+            <a href="/novedades?estado={{ filtro }}&area=aseo"
+               class="filtro-btn {{ 'activo' if area_filtro == 'aseo' }}">🧹 Aseo</a>
+            {% endif %}
+        </div>
+
+        <!-- Lista -->
+        {% if novedades %}
+            {% for n in novedades %}
+            <div class="novedad-card {{ n[2] }}">
+                <div class="novedad-top">
+                    <div class="novedad-hab">
+                        🚪 {{ n[1] }}
+                        <span class="folio">NV-{{ '%04d'|format(n[0]) }}</span>
+                        <span class="area-chip {{ n[2] }}">
+                            {{ '🔧 Mantenimiento' if n[2] == 'mantenimiento' else '🧹 Aseo' }}
+                        </span>
+                    </div>
+                    {% if n[9] == 'pendiente' %}
+                        <span class="estado-badge estado-pendiente">⏳ Pendiente</span>
+                    {% elif n[9] == 'en_proceso' %}
+                        <span class="estado-badge estado-en_proceso">🔄 En proceso</span>
+                    {% else %}
+                        <span class="estado-badge estado-resuelta">✅ Resuelta</span>
+                    {% endif %}
+                </div>
+
+                <div class="novedad-cat">{{ n[3] }}</div>
+                <div class="novedad-desc">{{ n[4] }}</div>
+                <div class="novedad-meta">
+                    Reportado por {{ n[5].title() if n[5] else 'huésped' }} · {{ n[7] }} a las {{ n[8][:5] }}
+                </div>
+
+                {% if n[11] %}
+                <div class="novedad-gestion">
+                    👤 <strong>{{ n[11] }}</strong> — {{ n[12] }}
+                    {% if n[13] %}<br>📝 {{ n[13] }}{% endif %}
+                </div>
+                {% endif %}
+
+                <div class="acciones">
+                    {% if n[10] %}
+                    <a href="/uploads/{{ n[10] }}" target="_blank" class="btn-foto">📷 Ver foto</a>
+                    {% endif %}
+
+                    {% if n[9] == 'pendiente' %}
+                    <form method="POST" action="/novedades/{{ n[0] }}/estado" style="display:inline">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="estado" value="en_proceso">
+                        <input type="hidden" name="filtro" value="{{ filtro }}">
+                        <input type="hidden" name="area_filtro" value="{{ area_filtro }}">
+                        <button type="submit" class="btn btn-proceso">🔄 Marcar en proceso</button>
+                    </form>
+                    {% endif %}
+
+                    {% if n[9] != 'resuelta' %}
+                    <form method="POST" action="/novedades/{{ n[0] }}/estado" style="display:inline"
+                          onsubmit="return agregarNota(this)">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="estado" value="resuelta">
+                        <input type="hidden" name="nota" value="">
+                        <input type="hidden" name="filtro" value="{{ filtro }}">
+                        <input type="hidden" name="area_filtro" value="{{ area_filtro }}">
+                        <button type="submit" class="btn btn-resolver">✅ Marcar resuelta</button>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+        <div class="empty-state">
+            <div class="icono">🎉</div>
+            <h3>Sin novedades {{ 'abiertas' if filtro == 'abiertas' else '' }}</h3>
+            <p>Cuando un huésped reporte algo, aparecerá aquí.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        function agregarNota(form) {
+            const nota = prompt('Nota de resolución (opcional):', '');
+            if (nota === null) return false;   // canceló
+            form.querySelector('input[name="nota"]').value = nota;
+            return true;
+        }
+
+        // Auto-refresh cada 60s para ver novedades nuevas
+        setTimeout(() => location.reload(), 60000);
+    </script>
+</body>
+</html>

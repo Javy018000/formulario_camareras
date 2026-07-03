@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal del Huésped - Habitación {{ habitacion }}</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 40px 30px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 420px;
+        }
+
+        .logo { text-align: center; margin-bottom: 25px; }
+        .logo h1 { color: #11998e; font-size: 24px; margin-bottom: 5px; }
+        .logo p { color: #666; font-size: 14px; }
+
+        .hab-badge {
+            display: inline-block;
+            background: #e6fcf5;
+            color: #0ca678;
+            font-size: 14px;
+            font-weight: 600;
+            padding: 6px 16px;
+            border-radius: 20px;
+            margin-top: 10px;
+        }
+
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            border-left: 4px solid #c33;
+        }
+
+        label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 14px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 18px;
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+        }
+
+        input[type="text"]:focus { outline: none; border-color: #11998e; }
+
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover { transform: translateY(-2px); }
+
+        .info-box {
+            background: #e6fcf5;
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            font-size: 13px;
+            color: #555;
+            line-height: 1.5;
+        }
+
+        .volver {
+            display: block;
+            text-align: center;
+            margin-top: 15px;
+            color: #999;
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .volver:hover { color: #11998e; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">
+            <h1>🛏️ Portal del Huésped</h1>
+            <p>Reporta novedades de tu habitación</p>
+            <span class="hab-badge">Habitación {{ habitacion }}</span>
+        </div>
+
+        {% if error %}
+        <div class="error">⚠️ {{ error }}</div>
+        {% endif %}
+
+        <form method="POST">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="hab" value="{{ habitacion }}">
+
+            <label for="cedula">Número de cédula</label>
+            <input type="text" id="cedula" name="cedula" inputmode="numeric"
+                   placeholder="Ej: 1027525509" required autofocus
+                   autocomplete="off" maxlength="20">
+
+            <button type="submit" class="btn">Verificar identidad</button>
+        </form>
+
+        <div class="info-box">
+            🔒 Por seguridad, solo los huéspedes registrados en esta habitación
+            pueden reportar novedades. Si tu cédula no aparece, acércate a recepción.
+        </div>
+
+        <a href="/qr?hab={{ habitacion }}" class="volver">← Volver</a>
+    </div>
+</body>
+</html>

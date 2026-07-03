@@ -125,11 +125,36 @@ def init_db():
         )
     ''')
 
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS novedades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            habitacion_numero TEXT NOT NULL,
+            area TEXT NOT NULL,
+            categoria TEXT NOT NULL,
+            descripcion TEXT NOT NULL,
+            huesped_nombre TEXT,
+            huesped_cedula TEXT,
+            fecha DATE NOT NULL,
+            hora TIME NOT NULL,
+            estado TEXT NOT NULL DEFAULT 'pendiente',
+            foto_path TEXT,
+            gestionado_por TEXT,
+            fecha_gestion TEXT,
+            nota_gestion TEXT
+        )
+    ''')
+
+    # Migración de roles: el antiguo 'admin' pasa a ser 'superadmin'
+    cursor.execute("UPDATE usuarios SET rol = 'superadmin' WHERE rol = 'admin'")
+
     cursor.execute("SELECT COUNT(*) FROM usuarios")
     if cursor.fetchone()[0] == 0:
         usuarios_default = [
-            ('Administrador', 'admin', generate_password_hash('admin123'), 'admin'),
-            ('Jefa de Área', 'jefa', generate_password_hash('123456'), 'jefa'),
+            ('Super Administrador', 'admin', generate_password_hash('admin123'), 'superadmin'),
+            ('Hotelero', 'hotelero', generate_password_hash('hotel123'), 'hotelero'),
+            ('Jefa de Camareras', 'jefa', generate_password_hash('123456'), 'jefa'),
+            ('Jefe de Mantenimiento', 'jefemant', generate_password_hash('123456'), 'jefe_mantenimiento'),
+            ('Técnico de Mantenimiento', 'tecnico', generate_password_hash('1234'), 'mantenimiento'),
             ('María González', 'maria', generate_password_hash('1234'), 'camarera'),
             ('Ana López', 'ana', generate_password_hash('1234'), 'camarera'),
             ('Carmen Ruiz', 'carmen', generate_password_hash('1234'), 'camarera')
@@ -400,6 +425,192 @@ def eliminar_reporte(id):
     cursor.execute('DELETE FROM reportes WHERE id = ?', (id,))
     conn.commit()
     conn.close()
+
+
+def verificar_password_por_id(user_id, password):
+    """Verifica si la contraseña dada es correcta para el usuario con ese id."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT password FROM usuarios WHERE id = ? AND activo = 1', (user_id,))
+    resultado = cursor.fetchone()
+    conn.close()
+    if not resultado:
+        return False
+    stored = resultado[0]
+    if check_password_hash(stored, password):
+        return True
+    return stored == password  # compatibilidad con contraseñas antiguas en texto plano
+
+
+def cambiar_credenciales(user_id, nuevo_usuario=None, nueva_password=None):
+    """Permite a un usuario actualizar su propio usuario y/o contraseña."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    if nuevo_usuario and nueva_password:
+        cursor.execute(
+            'UPDATE usuarios SET usuario = ?, password = ? WHERE id = ?',
+            (nuevo_usuario, generate_password_hash(nueva_password), user_id)
+        )
+    elif nuevo_usuario:
+        cursor.execute('UPDATE usuarios SET usuario = ? WHERE id = ?', (nuevo_usuario, user_id))
+    elif nueva_password:
+        cursor.execute(
+            'UPDATE usuarios SET password = ? WHERE id = ?',
+            (generate_password_hash(nueva_password), user_id)
+        )
+    conn.commit()
+    conn.close()
+
+
+# ==================== NOVEDADES (reportes de huéspedes) ====================
+
+_NOV_COLS = ('id, habitacion_numero, area, categoria, descripcion, huesped_nombre, '
+             'huesped_cedula, fecha, hora, estado, foto_path, gestionado_por, '
+             'fecha_gestion, nota_gestion')
+
+_ORDEN_ESTADO = "CASE estado WHEN 'pendiente' THEN 0 WHEN 'en_proceso' THEN 1 ELSE 2 END"
+
+
+def crear_novedad(datos):
+    """Registra una novedad reportada por un huésped. Devuelve su id (folio)."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO novedades
+        (habitacion_numero, area, categoria, descripcion, huesped_nombre,
+         huesped_cedula, fecha, hora, foto_path)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        datos['habitacion'],
+        datos['area'],
+        datos['categoria'],
+        datos['descripcion'],
+        datos.get('huesped_nombre', ''),
+        datos.get('huesped_cedula', ''),
+        datetime.now().strftime('%Y-%m-%d'),
+        datetime.now().strftime('%H:%M:%S'),
+        datos.get('foto_path', '')
+    ))
+    conn.commit()
+    novedad_id = cursor.lastrowid
+    conn.close()
+    return novedad_id
+
+
+def obtener_novedades(areas, filtro='abiertas'):
+    """Novedades de las áreas dadas. filtro: 'abiertas', 'todas' o un estado."""
+    if not areas:
+        return []
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    marcas = ','.join('?' * len(areas))
+    sql = f'SELECT {_NOV_COLS} FROM novedades WHERE area IN ({marcas})'
+    params = list(areas)
+
+    if filtro == 'abiertas':
+        sql += " AND estado != 'resuelta'"
+    elif filtro != 'todas':
+        sql += ' AND estado = ?'
+        params.append(filtro)
+
+    sql += f' ORDER BY {_ORDEN_ESTADO}, fecha DESC, hora DESC'
+    cursor.execute(sql, params)
+    novedades = cursor.fetchall()
+    conn.close()
+    return novedades
+
+
+def obtener_novedad(novedad_id):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(f'SELECT {_NOV_COLS} FROM novedades WHERE id = ?', (novedad_id,))
+    novedad = cursor.fetchone()
+    conn.close()
+    return novedad
+
+
+def obtener_novedades_habitacion(habitacion, limite=8):
+    """Últimas novedades de una habitación (para mostrárselas al huésped)."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(f'''
+        SELECT {_NOV_COLS} FROM novedades
+        WHERE habitacion_numero = ?
+        ORDER BY fecha DESC, hora DESC LIMIT ?
+    ''', (habitacion, limite))
+    novedades = cursor.fetchall()
+    conn.close()
+    return novedades
+
+
+def cambiar_estado_novedad(novedad_id, estado, gestionado_por, nota=''):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE novedades
+        SET estado = ?, gestionado_por = ?, fecha_gestion = ?, nota_gestion = ?
+        WHERE id = ?
+    ''', (estado, gestionado_por,
+          datetime.now().strftime('%Y-%m-%d %H:%M:%S'), nota, novedad_id))
+    conn.commit()
+    conn.close()
+
+
+def contar_novedades_abiertas():
+    """{'aseo': n, 'mantenimiento': m} con estado pendiente o en proceso."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT area, COUNT(*) FROM novedades
+        WHERE estado != 'resuelta' GROUP BY area
+    ''')
+    conteo = {'aseo': 0, 'mantenimiento': 0}
+    for area, n in cursor.fetchall():
+        conteo[area] = n
+    conn.close()
+    return conteo
+
+
+def estadisticas_novedades():
+    """Resumen por área: pendientes, en proceso y resueltas hoy."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+
+    stats = {
+        'aseo': {'pendiente': 0, 'en_proceso': 0, 'resueltas_hoy': 0},
+        'mantenimiento': {'pendiente': 0, 'en_proceso': 0, 'resueltas_hoy': 0},
+    }
+
+    cursor.execute('''
+        SELECT area, estado, COUNT(*) FROM novedades
+        WHERE estado != 'resuelta' GROUP BY area, estado
+    ''')
+    for area, estado, n in cursor.fetchall():
+        if area in stats and estado in stats[area]:
+            stats[area][estado] = n
+
+    hoy = datetime.now().strftime('%Y-%m-%d')
+    cursor.execute('''
+        SELECT area, COUNT(*) FROM novedades
+        WHERE estado = 'resuelta' AND fecha_gestion LIKE ? GROUP BY area
+    ''', (hoy + '%',))
+    for area, n in cursor.fetchall():
+        if area in stats:
+            stats[area]['resueltas_hoy'] = n
+
+    conn.close()
+    return stats
+
+
+def habitacion_existe(numero):
+    """True si la habitación está registrada y activa."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('SELECT 1 FROM habitaciones WHERE numero = ? AND activa = 1', (numero,))
+    existe = cursor.fetchone() is not None
+    conn.close()
+    return existe
 
 
 if __name__ == '__main__':

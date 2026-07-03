@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel del Hotel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f7fa;
+            padding-bottom: 40px;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #0ca678 0%, #087f5b 100%);
+            color: white;
+            padding: 25px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header-content {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header h1 { font-size: 26px; }
+        .header p { font-size: 14px; opacity: 0.9; margin-top: 5px; }
+
+        .header-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .header-btn {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .header-btn:hover { background: rgba(255,255,255,0.35); }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 25px; }
+
+        .seccion-titulo {
+            font-size: 15px;
+            font-weight: 700;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin: 25px 0 15px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 18px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 22px;
+            border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .stat-card .icono { font-size: 32px; margin-bottom: 8px; }
+        .stat-card .valor { font-size: 32px; font-weight: 700; color: #333; }
+        .stat-card .etiqueta { font-size: 13px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+
+        .stat-card.limpias { border-left: 4px solid #40c057; }
+        .stat-card.pendientes { border-left: 4px solid #ffc107; }
+        .stat-card.mant { border-left: 4px solid #fd7e14; }
+        .stat-card.aseo { border-left: 4px solid #667eea; }
+
+        .stat-card .sub { font-size: 12px; color: #999; margin-top: 5px; }
+
+        .dos-columnas {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 800px) {
+            .dos-columnas { grid-template-columns: 1fr; }
+        }
+
+        .panel {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 18px 20px;
+            border-bottom: 2px solid #f0f0f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-header h2 { font-size: 17px; color: #333; }
+
+        .ver-todo { font-size: 13px; color: #0ca678; text-decoration: none; font-weight: 600; }
+        .ver-todo:hover { text-decoration: underline; }
+
+        .item {
+            padding: 14px 20px;
+            border-bottom: 1px solid #f5f5f5;
+            font-size: 14px;
+        }
+        .item:last-child { border-bottom: none; }
+
+        .item .titulo { font-weight: 600; color: #333; }
+        .item .meta { font-size: 12px; color: #999; margin-top: 3px; }
+
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+        .badge-pendiente { background: #fff3cd; color: #856404; }
+        .badge-en_proceso { background: #cce5ff; color: #004085; }
+        .badge-limpia { background: #d4edda; color: #155724; }
+        .badge-obs { background: #fff3cd; color: #856404; }
+        .badge-mant-rep { background: #f8d7da; color: #721c24; }
+
+        .vacio { padding: 30px 20px; text-align: center; color: #aaa; font-size: 14px; }
+
+        .fuente-info {
+            margin-top: 25px;
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div>
+                <h1>🏨 Panel del Hotel</h1>
+                <p>{{ session.nombre }} — Vista general de limpieza y novedades</p>
+            </div>
+            <div class="header-btns">
+                <a href="/dashboard" class="header-btn">📊 Dashboard limpieza</a>
+                <a href="/novedades" class="header-btn">🔔 Novedades</a>
+                <a href="/logout" class="header-btn">Cerrar sesión</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="seccion-titulo">Hoy en el hotel</div>
+        <div class="stats-grid">
+            <div class="stat-card limpias">
+                <div class="icono">✅</div>
+                <div class="valor">{{ estadisticas.limpias }}</div>
+                <div class="etiqueta">Habitaciones limpias</div>
+                <div class="sub">de {{ estadisticas.total }} en total</div>
+            </div>
+            <div class="stat-card pendientes">
+                <div class="icono">⏳</div>
+                <div class="valor">{{ estadisticas.pendientes }}</div>
+                <div class="etiqueta">Limpiezas pendientes</div>
+            </div>
+            <div class="stat-card mant">
+                <div class="icono">🔧</div>
+                <div class="valor">{{ stats_novedades.mantenimiento.pendiente + stats_novedades.mantenimiento.en_proceso }}</div>
+                <div class="etiqueta">Novedades mantenimiento</div>
+                <div class="sub">{{ stats_novedades.mantenimiento.resueltas_hoy }} resueltas hoy</div>
+            </div>
+            <div class="stat-card aseo">
+                <div class="icono">🧹</div>
+                <div class="valor">{{ stats_novedades.aseo.pendiente + stats_novedades.aseo.en_proceso }}</div>
+                <div class="etiqueta">Novedades aseo</div>
+                <div class="sub">{{ stats_novedades.aseo.resueltas_hoy }} resueltas hoy</div>
+            </div>
+        </div>
+
+        <div class="seccion-titulo">Actividad reciente</div>
+        <div class="dos-columnas">
+            <!-- Novedades abiertas -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>🔔 Novedades abiertas</h2>
+                    <a href="/novedades" class="ver-todo">Ver todas →</a>
+                </div>
+                {% if ultimas_novedades %}
+                    {% for n in ultimas_novedades %}
+                    <div class="item">
+                        <div class="titulo">
+                            {{ '🔧' if n[2] == 'mantenimiento' else '🧹' }} Hab. {{ n[1] }} — {{ n[3] }}
+                            {% if n[9] == 'pendiente' %}
+                            <span class="badge badge-pendiente">Pendiente</span>
+                            {% else %}
+                            <span class="badge badge-en_proceso">En proceso</span>
+                            {% endif %}
+                        </div>
+                        <div class="meta">{{ n[7] }} {{ n[8][:5] }} · {{ n[5].title() if n[5] else 'Huésped' }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="vacio">🎉 No hay novedades abiertas</div>
+                {% endif %}
+            </div>
+
+            <!-- Últimos reportes de limpieza -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>🧹 Limpiezas de hoy</h2>
+                    <a href="/dashboard" class="ver-todo">Ver dashboard →</a>
+                </div>
+                {% if reportes %}
+                    {% for r in reportes %}
+                    <div class="item">
+                        <div class="titulo">
+                            Hab. {{ r[1] }} — {{ r[2] }}
+                            {% if r[4] == 'Limpia y lista' %}
+                            <span class="badge badge-limpia">Limpia</span>
+                            {% elif r[4] == 'Limpia con observaciones' %}
+                            <span class="badge badge-obs">Con obs.</span>
+                            {% else %}
+                            <span class="badge badge-mant-rep">Mantenim.</span>
+                            {% endif %}
+                        </div>
+                        <div class="meta">{{ r[3] }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="vacio">Aún no hay reportes de limpieza hoy</div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="fuente-info">
+            📋 Datos de ocupación (validación de huéspedes): fuente <strong>{{ fuente.fuente }}</strong>
+            {% if fuente.actualizado %} · actualizado {{ fuente.actualizado }}{% endif %}
+            · {{ fuente.total }} huéspedes registrados
+        </div>
+    </div>
+
+    <script>
+        // Auto-refresh cada 60s
+        setTimeout(() => location.reload(), 60000);
+    </script>
+</body>
+</html>

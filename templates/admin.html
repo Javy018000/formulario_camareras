@@ -184,6 +184,9 @@
         .badge-admin { background: #1a1a2e; color: white; }
         .badge-jefa { background: #667eea; color: white; }
         .badge-camarera { background: #4caf50; color: white; }
+        .badge-mant { background: #fd7e14; color: white; }
+        .badge-jefemant { background: #e8590c; color: white; }
+        .badge-hotelero { background: #0ca678; color: white; }
         .badge-activo { background: #d4edda; color: #155724; }
         .badge-inactivo { background: #f8d7da; color: #721c24; }
 
@@ -255,7 +258,12 @@
                 <h1>⚙️ Panel de Administracion</h1>
                 <p>{{ session.nombre }}</p>
             </div>
-            <button class="logout-btn" onclick="location.href='/logout'">Cerrar Sesion</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap">
+                <button class="logout-btn" onclick="location.href='/panel-hotel'">🏨 Panel Hotel</button>
+                <button class="logout-btn" onclick="location.href='/dashboard'">📊 Dashboard</button>
+                <button class="logout-btn" onclick="location.href='/novedades'">🔔 Novedades</button>
+                <button class="logout-btn" onclick="location.href='/logout'">Cerrar Sesion</button>
+            </div>
         </div>
     </div>
 
@@ -291,8 +299,11 @@
                             <label>Rol</label>
                             <select name="rol" required>
                                 <option value="camarera">Camarera</option>
-                                <option value="jefa">Jefa</option>
-                                <option value="admin">Admin</option>
+                                <option value="jefa">Jefa de Camareras</option>
+                                <option value="mantenimiento">Mantenimiento</option>
+                                <option value="jefe_mantenimiento">Jefe de Mantenimiento</option>
+                                <option value="hotelero">Hotelero (Admin)</option>
+                                <option value="superadmin">Super Admin</option>
                             </select>
                         </div>
                     </div>
@@ -321,10 +332,16 @@
                             <td>{{ u[1] }}</td>
                             <td><code>{{ u[2] }}</code></td>
                             <td>
-                                {% if u[3] == 'admin' %}
-                                    <span class="badge badge-admin">Admin</span>
+                                {% if u[3] in ('admin', 'superadmin') %}
+                                    <span class="badge badge-admin">Super Admin</span>
+                                {% elif u[3] == 'hotelero' %}
+                                    <span class="badge badge-hotelero">Hotelero</span>
                                 {% elif u[3] == 'jefa' %}
-                                    <span class="badge badge-jefa">Jefa</span>
+                                    <span class="badge badge-jefa">Jefa Camareras</span>
+                                {% elif u[3] == 'jefe_mantenimiento' %}
+                                    <span class="badge badge-jefemant">Jefe Mantenim.</span>
+                                {% elif u[3] == 'mantenimiento' %}
+                                    <span class="badge badge-mant">Mantenimiento</span>
                                 {% else %}
                                     <span class="badge badge-camarera">Camarera</span>
                                 {% endif %}
@@ -507,8 +524,11 @@
                     <label>Rol</label>
                     <select name="rol" id="edit-rol" required>
                         <option value="camarera">Camarera</option>
-                        <option value="jefa">Jefa</option>
-                        <option value="admin">Admin</option>
+                        <option value="jefa">Jefa de Camareras</option>
+                        <option value="mantenimiento">Mantenimiento</option>
+                        <option value="jefe_mantenimiento">Jefe de Mantenimiento</option>
+                        <option value="hotelero">Hotelero (Admin)</option>
+                        <option value="superadmin">Super Admin</option>
                     </select>
                 </div>
                 <button type="submit" class="btn btn-primary">Guardar Cambios</button>

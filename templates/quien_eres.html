@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Habitación {{ habitacion }} - Hotel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .card {
+            background: white;
+            padding: 40px 30px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 420px;
+            text-align: center;
+        }
+
+        .hab-badge {
+            display: inline-block;
+            background: #f0f4ff;
+            color: #667eea;
+            font-size: 15px;
+            font-weight: 600;
+            padding: 8px 18px;
+            border-radius: 20px;
+            margin-bottom: 15px;
+        }
+
+        h1 { color: #333; font-size: 26px; margin-bottom: 8px; }
+        .subtitle { color: #777; font-size: 15px; margin-bottom: 30px; }
+
+        .opcion {
+            display: block;
+            width: 100%;
+            padding: 22px 20px;
+            border: none;
+            border-radius: 15px;
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+            text-decoration: none;
+            cursor: pointer;
+            margin-bottom: 15px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .opcion:hover { transform: translateY(-3px); box-shadow: 0 8px 20px rgba(0,0,0,0.2); }
+
+        .opcion small { display: block; font-weight: 400; font-size: 13px; opacity: 0.9; margin-top: 5px; }
+
+        .opcion.camarera { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .opcion.huesped { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+
+        .staff-link {
+            display: inline-block;
+            margin-top: 10px;
+            color: #999;
+            font-size: 13px;
+            text-decoration: none;
+        }
+        .staff-link:hover { color: #667eea; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="hab-badge">🚪 Habitación {{ habitacion }}</div>
+        <h1>¡Bienvenido!</h1>
+        <p class="subtitle">¿Quién está escaneando este código?</p>
+
+        <a href="/login?next={{ next_camarera }}" class="opcion camarera">
+            🧹 Soy camarera
+            <small>Registrar limpieza de la habitación</small>
+        </a>
+
+        <a href="/huesped/validar?hab={{ habitacion }}" class="opcion huesped">
+            🛏️ Soy huésped
+            <small>Reportar una novedad o problema</small>
+        </a>
+
+        <a href="/login" class="staff-link">¿Otro personal del hotel? Inicia sesión aquí</a>
+    </div>
+</body>
+</html>

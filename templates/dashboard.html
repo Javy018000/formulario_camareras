@@ -385,9 +385,17 @@
         <div class="header-content">
             <div>
                 <h1>📊 Panel de Control</h1>
-                <p>{{ session.nombre }} - Jefa de Área</p>
+                <p>{{ session.nombre }}</p>
             </div>
-            <button class="logout-btn" onclick="location.href='/logout'">Cerrar Sesión</button>
+            <div style="display:flex; gap:8px; flex-wrap:wrap">
+                <button class="logout-btn" onclick="location.href='/novedades'">
+                    🔔 Novedades aseo{% if novedades_aseo %} ({{ novedades_aseo }}){% endif %}
+                </button>
+                {% if session.rol in ('hotelero', 'superadmin', 'admin') %}
+                <button class="logout-btn" onclick="location.href='/'">← Mi panel</button>
+                {% endif %}
+                <button class="logout-btn" onclick="location.href='/logout'">Cerrar Sesión</button>
+            </div>
         </div>
     </div>
 
