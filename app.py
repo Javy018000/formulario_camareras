@@ -1,7 +1,9 @@
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask import (Flask, render_template, request, redirect, url_for, session,
+                   jsonify, send_file, abort)
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from PIL import Image, ImageOps, UnidentifiedImageError
+import io
 import os
 import secrets
 import sys
@@ -18,6 +20,11 @@ from functools import wraps
 from urllib.parse import urlparse, quote
 import database as db
 import ocupacion
+import backup
+
+# Token para descargar respaldos desde el script local automático (sin sesión).
+# Configúralo en el entorno junto con SECRET_KEY.
+BACKUP_TOKEN = os.environ.get('BACKUP_TOKEN', '')
 
 app = Flask(__name__)
 
@@ -38,9 +45,12 @@ app.secret_key = _secret_key
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-MAX_IMAGE_SIDE = 1920
-IMAGE_JPEG_QUALITY = 85
-IMAGE_RESAMPLE_FILTER = getattr(Image, 'Resampling', Image).LANCZOS
+# El grueso del reescalado lo hace el navegador del celular (static/js/resize-upload.js);
+# aquí solo re-guardamos barato. Por eso 1280px/BILINEAR/sin optimize: 4x menos CPU que
+# LANCZOS+optimize, algo crítico en el plan gratis de hosting (100 seg de CPU/día).
+MAX_IMAGE_SIDE = 1280
+IMAGE_JPEG_QUALITY = 78
+IMAGE_RESAMPLE_FILTER = getattr(Image, 'Resampling', Image).BILINEAR
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
 
@@ -57,33 +67,53 @@ def allowed_file(filename):
 
 
 def save_optimized_image(file, filename_prefix):
+    """Guarda una foto comprimida gastando la mínima CPU posible.
+
+    Normalmente el celular ya envía la imagen reducida (~1280px), así que
+    aquí solo se re-guarda (~12 ms). Si llega una foto grande (navegador sin
+    JS), se usa draft() para decodificar el JPEG ya escalado —unas 4x más
+    barato que decodificar a resolución completa— antes de reducir.
+    """
     if not file or not file.filename or not allowed_file(file.filename):
         return ''
 
-    original_name = secure_filename(file.filename)
-    base_name = os.path.splitext(original_name)[0] or 'foto'
     safe_prefix = secure_filename(str(filename_prefix)) or 'foto'
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"{safe_prefix}_{timestamp}_{base_name}.jpg"
+    filename = f"{safe_prefix}_{timestamp}_{secrets.token_hex(3)}.jpg"
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
 
     try:
         image = Image.open(file.stream)
+        image.draft('RGB', (MAX_IMAGE_SIDE, MAX_IMAGE_SIDE))  # decodifica JPEG ya reducido
         image = ImageOps.exif_transpose(image)
-        image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), IMAGE_RESAMPLE_FILTER)
+
+        if max(image.size) > MAX_IMAGE_SIDE:
+            image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), IMAGE_RESAMPLE_FILTER)
 
         if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
             background = Image.new('RGB', image.size, (255, 255, 255))
             alpha = image.convert('RGBA').getchannel('A')
             background.paste(image.convert('RGBA'), mask=alpha)
             image = background
-        else:
+        elif image.mode != 'RGB':
             image = image.convert('RGB')
 
-        image.save(filepath, 'JPEG', quality=IMAGE_JPEG_QUALITY, optimize=True, progressive=True)
+        image.save(filepath, 'JPEG', quality=IMAGE_JPEG_QUALITY)
         return filename
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         raise ValueError('La foto no se pudo leer. Sube una imagen JPG, PNG o GIF válida.') from exc
+
+
+def _borrar_foto(foto_path):
+    """Borra un archivo de foto del disco (ignora si no existe)."""
+    if not foto_path:
+        return
+    try:
+        ruta = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(foto_path))
+        if os.path.isfile(ruta):
+            os.remove(ruta)
+    except OSError:
+        pass
 
 
 def is_safe_redirect(url):
@@ -635,7 +665,11 @@ def admin_panel():
     usuarios = db.obtener_usuarios()
     habitaciones = db.obtener_todas_habitaciones()
     reportes = db.obtener_todos_reportes()
+    disco = backup.uso_disco()
+    disco['cuota_mb'] = int(os.environ.get('CUOTA_DISCO_MB', '512'))
+    disco['pct'] = min(100, round(disco['total_mb'] / disco['cuota_mb'] * 100, 1))
     return render_template('admin.html',
+                           disco=disco,
                            usuarios=usuarios,
                            habitaciones=habitaciones,
                            reportes=reportes)
@@ -730,8 +764,34 @@ def admin_eliminar_habitacion(id):
 def admin_eliminar_reporte(id):
     if 'usuario_id' not in session or session['rol'] not in ROLES_SUPER:
         return jsonify({'error': 'No autorizado'}), 401
+    reporte = db.obtener_reporte_detalle(id)
+    if reporte:
+        _borrar_foto(reporte[10])  # foto_path
     db.eliminar_reporte(id)
     return redirect(url_for('admin_panel'))
+
+
+# ==================== RESPALDOS (BACKUP) ====================
+
+@app.route('/admin/backup')
+def admin_backup():
+    """Descarga un ZIP de respaldo.
+
+    Autorizado por sesión de superadmin (botón en el panel) o por token secreto
+    en la URL (para el script automático `backup_local.py` en tu PC).
+    Parámetro ?fotos=1 para incluir también las imágenes.
+    """
+    token = request.args.get('token', '')
+    por_sesion = 'usuario_id' in session and session.get('rol') in ROLES_SUPER
+    por_token = bool(BACKUP_TOKEN) and secrets.compare_digest(token, BACKUP_TOKEN)
+    if not (por_sesion or por_token):
+        abort(403)
+
+    incluir_fotos = request.args.get('fotos') == '1'
+    datos = backup.crear_backup_zip(incluir_fotos=incluir_fotos)
+    nombre = f"backup_hotel_{datetime.now():%Y-%m-%d_%H%M}.zip"
+    return send_file(io.BytesIO(datos), mimetype='application/zip',
+                     as_attachment=True, download_name=nombre)
 
 
 # ==================== SERVIR ARCHIVOS ESTÁTICOS ====================

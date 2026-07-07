@@ -349,6 +349,7 @@
         </form>
     </div>
 
+    <script src="/static/js/resize-upload.js"></script>
     <script>
         // Registrar hora de inicio cuando la camarera abre el formulario
         document.addEventListener('DOMContentLoaded', function() {
@@ -394,6 +395,9 @@
             alertBox.style.display = 'none';
 
             try {
+                // Reducir la foto en el celular antes de subir (ahorra CPU y datos)
+                await prepararFotoParaSubir(document.getElementById('foto'), formData);
+
                 const response = await fetch('/guardar-reporte', {
                     method: 'POST',
                     body: formData

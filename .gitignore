@@ -12,6 +12,10 @@ venv/
 ocupacion_cache.csv
 ocupacion_cache.meta.json
 
+# Respaldos locales y temporales de backup
+backups/
+_backup_tmp_*.db
+
 # Uploads
 uploads/
 

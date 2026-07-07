@@ -268,6 +268,7 @@
         {% endif %}
     </div>
 
+    <script src="/static/js/resize-upload.js"></script>
     <script>
         const CATEGORIAS = {{ categorias | tojson }};
 
@@ -333,9 +334,13 @@
             btn.textContent = '⏳ Enviando...';
 
             try {
+                const formData = new FormData(this);
+                // Reducir la foto en el celular antes de subir (ahorra CPU y datos)
+                await prepararFotoParaSubir(document.getElementById('foto'), formData);
+
                 const response = await fetch('/huesped/novedad', {
                     method: 'POST',
-                    body: new FormData(this)
+                    body: formData
                 });
                 const result = await response.json();
 

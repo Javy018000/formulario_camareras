@@ -23,4 +23,8 @@ if path not in sys.path:
 # Puedes generarlo con:  python -c "import secrets; print(secrets.token_hex(32))"
 os.environ.setdefault('SECRET_KEY', 'CAMBIA-ESTO-POR-UN-TEXTO-ALEATORIO-LARGO')
 
+# TODO 3 (opcional): token para el respaldo automático desde tu PC (backup_local.py).
+# Genera otro distinto al SECRET_KEY y ponlo también en backup_local.py.
+os.environ.setdefault('BACKUP_TOKEN', 'CAMBIA-ESTO-POR-OTRO-TEXTO-ALEATORIO')
+
 from app import app as application  # noqa: E402

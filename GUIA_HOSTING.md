@@ -101,13 +101,60 @@ Luego imprime los PNG de `static/qrs/` (o regenera el Word con
 
 ---
 
+## Respaldos (backups) y trazabilidad
+
+El sistema tiene respaldos integrados. Un respaldo es un ZIP con la base de
+datos completa + las novedades y reportes en CSV (legible en Excel) + opcional
+las fotos.
+
+**Manual (cuando quieras):** entra como superadmin → panel **Admin → pestaña
+💾 Respaldos**. Ahí ves el uso de disco y dos botones para descargar el
+respaldo (con o sin fotos) a tu PC.
+
+**Automático a tu PC (recomendado, deja historial con fecha):**
+
+1. En PythonAnywhere, pestaña **Web → sección "Environment variables"**, agrega
+   `BACKUP_TOKEN` con un texto aleatorio (distinto al SECRET_KEY). Reload.
+   *(O ya viene en el `wsgi_pythonanywhere.py`, TODO 3.)*
+2. En tu PC, edita `backup_local.py` y pon los mismos `URL_BASE` y `BACKUP_TOKEN`.
+3. Pruébalo: `python backup_local.py` → debe crear `backups/backup_hotel_FECHA.zip`.
+4. Prográmalo con el **Programador de tareas de Windows**:
+   - Abre "Programador de tareas" → **Crear tarea básica**.
+   - Desencadenador: **Diariamente** a la hora que quieras (ej. 2:00 a.m.).
+   - Acción: **Iniciar un programa** →
+     - Programa: `python`
+     - Argumentos: `backup_local.py` (o `backup_local.py --fotos` para incluir fotos)
+     - Iniciar en: la carpeta del proyecto en tu PC.
+   - Listo: cada día tu PC descarga un respaldo con fecha. Nunca se
+     sobreescriben → ese es tu historial y trazabilidad.
+
+> Sugerencia: respaldo **sin fotos a diario** (es pequeño y guarda todos los
+> datos) y **con fotos una vez por semana** (`--fotos`).
+
+## Limpieza de fotos (solo si el disco se llena)
+
+Con la compresión actual caben miles de fotos, pero si algún día te acercas al
+límite (lo ves en la pestaña Respaldos), en una consola Bash de PythonAnywhere:
+
+```
+cd formulario_camareras
+python3 mantenimiento_fotos.py                    # simula, no borra
+python3 mantenimiento_fotos.py --aplicar          # borra fotos huérfanas
+python3 mantenimiento_fotos.py --aplicar --dias 90   # + caduca fotos de +90 días
+```
+
+Solo borra imágenes; los registros (quién reportó qué y cuándo) se conservan.
+**Descarga un respaldo antes.**
+
+---
+
 ## Mantenimiento
 
 | Tarea | Cómo |
 |---|---|
 | Actualizar el código | Bash: `cd formulario_camareras && git pull` → Web → **Reload** |
 | Mantener viva la app | Cada <3 meses: Web → **"Run until 3 months from today"** |
-| Respaldar la BD | Files → descargar `hotel_limpieza.db` de vez en cuando |
+| Respaldar la BD | Panel Admin → 💾 Respaldos, o automático con `backup_local.py` |
 
 ## Importante ahora que está en internet
 

@@ -273,6 +273,7 @@
             <button class="tab-btn active" onclick="cambiarTab('usuarios')">👥 Usuarios</button>
             <button class="tab-btn" onclick="cambiarTab('habitaciones')">🏨 Habitaciones</button>
             <button class="tab-btn" onclick="cambiarTab('reportes')">📋 Reportes</button>
+            <button class="tab-btn" onclick="cambiarTab('respaldos')">💾 Respaldos</button>
         </div>
 
         <!-- ==================== TAB USUARIOS ==================== -->
@@ -497,6 +498,54 @@
                     <p>No hay reportes registrados</p>
                 </div>
                 {% endif %}
+            </div>
+        </div>
+
+        <!-- ==================== TAB RESPALDOS ==================== -->
+        <div class="tab-content" id="tab-respaldos">
+            <!-- Uso de disco -->
+            <div class="card">
+                <h2>Uso de almacenamiento</h2>
+                <div style="margin-bottom:10px; color:#555; font-size:14px;">
+                    <strong>{{ disco.total_mb }} MB</strong> usados de {{ disco.cuota_mb }} MB
+                    ({{ disco.pct }}%)
+                    &nbsp;·&nbsp; {{ disco.fotos_n }} fotos = {{ disco.fotos_mb }} MB
+                    &nbsp;·&nbsp; base de datos {{ disco.db_kb }} KB
+                </div>
+                <div style="background:#eee; border-radius:10px; height:22px; overflow:hidden;">
+                    <div style="height:100%; width:{{ disco.pct }}%;
+                        background:{{ '#f44336' if disco.pct > 85 else ('#ff9800' if disco.pct > 60 else '#4caf50') }};
+                        transition:width .3s;"></div>
+                </div>
+                {% if disco.pct > 85 %}
+                <p style="color:#c33; margin-top:10px; font-size:13px;">
+                    ⚠️ Espacio casi lleno. Descarga un respaldo y ejecuta la limpieza de fotos antiguas.
+                </p>
+                {% endif %}
+            </div>
+
+            <!-- Descargar respaldo -->
+            <div class="card">
+                <h2>Descargar respaldo ahora</h2>
+                <p style="color:#666; font-size:14px; margin-bottom:15px;">
+                    Un respaldo incluye la base de datos completa y las novedades/reportes
+                    en CSV (legible). Guárdalo en tu PC para tener trazabilidad e historial.
+                </p>
+                <div class="actions">
+                    <a href="/admin/backup" class="btn btn-primary">💾 Respaldo (sin fotos, rápido)</a>
+                    <a href="/admin/backup?fotos=1" class="btn btn-edit">🖼️ Respaldo completo (con fotos)</a>
+                </div>
+            </div>
+
+            <!-- Respaldo automático -->
+            <div class="card">
+                <h2>Respaldo automático a tu PC</h2>
+                <p style="color:#666; font-size:14px; line-height:1.6;">
+                    Para que tu computador descargue un respaldo solo cada día (y quede
+                    historial con fecha), configura el script <code>backup_local.py</code>
+                    con el Programador de tareas de Windows. Los pasos están en
+                    <code>GUIA_HOSTING.md</code>, sección «Respaldos automáticos».
+                </p>
             </div>
         </div>
     </div>
