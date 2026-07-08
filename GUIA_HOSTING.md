@@ -111,25 +111,63 @@ las fotos.
 💾 Respaldos**. Ahí ves el uso de disco y dos botones para descargar el
 respaldo (con o sin fotos) a tu PC.
 
-**Automático a tu PC (recomendado, deja historial con fecha):**
+**Modo archivo local — correr la app en tu PC (lo más cómodo):**
+
+Si ejecutas `python app.py` en tu PC con estas dos variables de entorno
+configuradas, la app se convierte en un **espejo completo de producción**: al
+arrancar se trae la base de datos y las fotos, y puedes navegar todo el
+historial con la interfaz normal en `http://localhost:3000`. **En modo local
+nada se borra nunca** (es tu archivo/evidencia permanente).
+
+```
+set HOTEL_URL=https://TUUSUARIO.pythonanywhere.com
+set BACKUP_TOKEN=el-mismo-token-del-servidor
+python app.py
+```
+
+- La base de datos se sincroniza al instante; las fotos se descargan en segundo
+  plano (solo las nuevas — las que ya tienes no se vuelven a bajar).
+- Verás en la consola `🏨 SERVIDOR DE LIMPIEZA DE HOTEL  [ARCHIVO LOCAL]`.
+- Si no hay internet, arranca igual con la última copia que tengas.
+- Antes de reemplazar, guarda una copia fechada de tu BD local anterior en
+  `respaldo_hotel/datos/` — nunca pierdes el estado previo.
+
+> En ese PC que siempre está encendido puedes dejar corriendo `python app.py`;
+> cada vez que lo reinicies, se pone al día. Ojo: es un **visor/archivo**, los
+> datos reales se crean en producción (el sitio en línea).
+
+**Automático a tu PC (alternativa — solo bajar archivos, sin abrir la app):**
+
+Ideal para un PC que siempre esté encendido. Usa `sync_local.py`, que mantiene
+un espejo eficiente: baja los datos siempre (pequeño, con fecha) y las fotos
+**solo una vez** (las que ya tienes no se vuelven a descargar). Resultado:
+
+```
+respaldo_hotel/
+    fotos/                          → TODAS las fotos, permanentes (nunca se re-bajan)
+    datos/datos_2026-07-08_0200.zip → BD + CSV con fecha (historial/trazabilidad)
+```
+
+Pasos:
 
 1. En PythonAnywhere, pestaña **Web → sección "Environment variables"**, agrega
    `BACKUP_TOKEN` con un texto aleatorio (distinto al SECRET_KEY). Reload.
    *(O ya viene en el `wsgi_pythonanywhere.py`, TODO 3.)*
-2. En tu PC, edita `backup_local.py` y pon los mismos `URL_BASE` y `BACKUP_TOKEN`.
-3. Pruébalo: `python backup_local.py` → debe crear `backups/backup_hotel_FECHA.zip`.
+2. En el PC, edita `sync_local.py` y pon los mismos `URL_BASE` y `BACKUP_TOKEN`.
+3. Pruébalo: `python sync_local.py` → debe crear la carpeta `respaldo_hotel/`.
 4. Prográmalo con el **Programador de tareas de Windows**:
    - Abre "Programador de tareas" → **Crear tarea básica**.
-   - Desencadenador: **Diariamente** a la hora que quieras (ej. 2:00 a.m.).
+   - Desencadenador: **Diariamente** (o repetir cada 6-12 h desde Propiedades).
    - Acción: **Iniciar un programa** →
      - Programa: `python`
-     - Argumentos: `backup_local.py` (o `backup_local.py --fotos` para incluir fotos)
-     - Iniciar en: la carpeta del proyecto en tu PC.
-   - Listo: cada día tu PC descarga un respaldo con fecha. Nunca se
-     sobreescriben → ese es tu historial y trazabilidad.
+     - Argumentos: `sync_local.py`
+     - Iniciar en: la carpeta del proyecto en ese PC.
+   - En Propiedades marca **"Ejecutar tanto si el usuario inició sesión como si
+     no"** para que corra aunque nadie esté usando el PC.
 
-> Sugerencia: respaldo **sin fotos a diario** (es pequeño y guarda todos los
-> datos) y **con fotos una vez por semana** (`--fotos`).
+> Alternativa: `backup_local.py` genera un ZIP completo por ejecución (todo cada
+> vez). Sirve si quieres archivos independientes; `sync_local.py` es mejor para
+> dejarlo corriendo siempre porque no re-descarga las fotos.
 
 ## Limpieza de fotos (solo si el disco se llena)
 

@@ -26,6 +26,11 @@ import backup
 # Configúralo en el entorno junto con SECRET_KEY.
 BACKUP_TOKEN = os.environ.get('BACKUP_TOKEN', '')
 
+# MODO ARCHIVO LOCAL: se activa solo al correr `python app.py` en tu PC con la
+# sincronización configurada. Mientras esté activo, la app NUNCA borra fotos
+# (es tu archivo/evidencia permanente). En el hosting siempre es False.
+MODO_ARCHIVO = False
+
 app = Flask(__name__)
 
 # Detrás de un hosting/proxy (PythonAnywhere, etc.) la IP real del cliente
@@ -105,8 +110,11 @@ def save_optimized_image(file, filename_prefix):
 
 
 def _borrar_foto(foto_path):
-    """Borra un archivo de foto del disco (ignora si no existe)."""
-    if not foto_path:
+    """Borra un archivo de foto del disco (ignora si no existe).
+
+    En modo archivo local nunca borra: la copia de tu PC es evidencia permanente.
+    """
+    if MODO_ARCHIVO or not foto_path:
         return
     try:
         ruta = os.path.join(app.config['UPLOAD_FOLDER'], os.path.basename(foto_path))
@@ -773,18 +781,23 @@ def admin_eliminar_reporte(id):
 
 # ==================== RESPALDOS (BACKUP) ====================
 
+def _autorizado_backup():
+    """True si la petición viene de un superadmin con sesión o del token secreto."""
+    por_sesion = 'usuario_id' in session and session.get('rol') in ROLES_SUPER
+    por_token = bool(BACKUP_TOKEN) and secrets.compare_digest(
+        request.args.get('token', ''), BACKUP_TOKEN)
+    return por_sesion or por_token
+
+
 @app.route('/admin/backup')
 def admin_backup():
     """Descarga un ZIP de respaldo.
 
     Autorizado por sesión de superadmin (botón en el panel) o por token secreto
-    en la URL (para el script automático `backup_local.py` en tu PC).
+    en la URL (para los scripts `backup_local.py` / `sync_local.py` en tu PC).
     Parámetro ?fotos=1 para incluir también las imágenes.
     """
-    token = request.args.get('token', '')
-    por_sesion = 'usuario_id' in session and session.get('rol') in ROLES_SUPER
-    por_token = bool(BACKUP_TOKEN) and secrets.compare_digest(token, BACKUP_TOKEN)
-    if not (por_sesion or por_token):
+    if not _autorizado_backup():
         abort(403)
 
     incluir_fotos = request.args.get('fotos') == '1'
@@ -794,13 +807,28 @@ def admin_backup():
                      as_attachment=True, download_name=nombre)
 
 
+@app.route('/admin/backup/fotos')
+def admin_backup_lista_fotos():
+    """Lista los nombres de foto en el servidor (para la sincronización incremental)."""
+    if not _autorizado_backup():
+        abort(403)
+    carpeta = app.config['UPLOAD_FOLDER']
+    fotos = [n for n in os.listdir(carpeta) if os.path.isfile(os.path.join(carpeta, n))]
+    return jsonify({'fotos': sorted(fotos), 'total': len(fotos)})
+
+
 # ==================== SERVIR ARCHIVOS ESTÁTICOS ====================
 
 from flask import send_from_directory
 
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
-    if 'usuario_id' not in session:
+    # Cualquier usuario del personal con sesión puede ver fotos en la app;
+    # el token de respaldo permite al script de sincronización descargarlas.
+    por_sesion = 'usuario_id' in session
+    por_token = bool(BACKUP_TOKEN) and secrets.compare_digest(
+        request.args.get('token', ''), BACKUP_TOKEN)
+    if not (por_sesion or por_token):
         return redirect(url_for('login'))
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
@@ -810,12 +838,47 @@ def uploaded_file(filename):
 if __name__ == '__main__':
     db.init_db()
 
+    # ---- MODO ARCHIVO LOCAL --------------------------------------------------
+    # Al correr en tu PC, si configuraste HOTEL_URL + BACKUP_TOKEN, la app se
+    # trae la BD y las fotos de producción para usarla como archivo completo.
+    # Nada se borra aquí. Si no está configurado o no hay internet, arranca
+    # normal con la copia local que tengas.
+    _hotel_url = os.environ.get('HOTEL_URL', '')
+    _hotel_token = os.environ.get('BACKUP_TOKEN', '')
+    _sync_ok = (_hotel_url and _hotel_token
+                and 'TUUSUARIO' not in _hotel_url and 'PON-AQUI' not in _hotel_token)
+
+    if _sync_ok:
+        import threading
+        import archivo_local
+        MODO_ARCHIVO = True
+        _respaldo_dir = os.path.join(BASE_DIR, 'respaldo_hotel', 'datos')
+
+        print("\n🗂️  MODO ARCHIVO LOCAL — sincronizando desde producción...")
+        try:
+            archivo_local.sincronizar_db(_hotel_url, _hotel_token, db.DB_NAME, _respaldo_dir)
+        except Exception as e:
+            print(f"   ⚠️  No se pudo sincronizar la base de datos ({e}). Uso la copia local.")
+
+        def _descargar_fotos_en_segundo_plano():
+            try:
+                archivo_local.sincronizar_fotos(_hotel_url, _hotel_token,
+                                                app.config['UPLOAD_FOLDER'])
+            except Exception as e:
+                print(f"   ⚠️  Fotos: {e}")
+
+        threading.Thread(target=_descargar_fotos_en_segundo_plano, daemon=True).start()
+        print("   Las fotos se descargan en segundo plano. Aquí NADA se borra.")
+    else:
+        print("\n💡 Modo archivo local desactivado (configura HOTEL_URL y BACKUP_TOKEN"
+              " para traer los datos de producción).")
+
     import socket
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
 
     print("\n" + "="*50)
-    print("🏨 SERVIDOR DE LIMPIEZA DE HOTEL")
+    print("🏨 SERVIDOR DE LIMPIEZA DE HOTEL" + ("  [ARCHIVO LOCAL]" if MODO_ARCHIVO else ""))
     print("="*50)
     print(f"📱 Dominio local: http://camarerasshbi.com:3000")
     print(f"📱 Acceso por IP:  http://{local_ip}:3000")

@@ -14,6 +14,12 @@ import os
 import sys
 from datetime import datetime
 
+if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
+
 import requests
 
 # ---- CONFIGURACIÓN (ajusta estos 3 valores) ----------------------------------
