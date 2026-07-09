@@ -46,6 +46,14 @@ if not _secret_key:
     print("   Para fijarla: set SECRET_KEY=<texto_aleatorio_largo>\n")
 app.secret_key = _secret_key
 
+# Cookies de sesión endurecidas. SECURE solo bajo HTTPS (actívalo en el
+# hosting con COOKIES_SEGURAS=1; en la red local con http rompería el login).
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('COOKIES_SEGURAS', '').lower() in ('1', 'true'),
+)
+
 # Configuración de uploads (ruta absoluta: en WSGI el cwd no es el proyecto)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
@@ -153,6 +161,36 @@ def csrf_required(f):
                 return redirect(url_for('login'))
         return f(*args, **kwargs)
     return wrapper
+
+
+# ==================== CONTRASEÑAS ====================
+
+PASSWORDS_PROHIBIDAS = {
+    '1234', '12345', '123456', '1234567', '12345678', '123456789', '1234567890',
+    'password', 'contraseña', 'contrasena', 'qwerty', 'qwerty123', 'abc123',
+    'admin123', 'hotel123', '11111111', '00000000', '87654321', 'aaaaaaaa',
+}
+
+
+def validar_password_nueva(password, usuario=''):
+    """Valida una contraseña nueva. Devuelve un mensaje de error o None si es válida."""
+    if len(password) < 8:
+        return 'La contraseña debe tener al menos 8 caracteres.'
+    if usuario and password.lower() == usuario.lower():
+        return 'La contraseña no puede ser igual a tu nombre de usuario.'
+    if password.lower() in PASSWORDS_PROHIBIDAS:
+        return 'Esa contraseña es demasiado común. Elige una más difícil de adivinar.'
+    return None
+
+
+@app.before_request
+def forzar_cambio_password():
+    """Si el usuario tiene el flag de cambio obligatorio, no puede usar nada
+    del sistema hasta elegir una contraseña propia."""
+    if 'usuario_id' in session and session.get('debe_cambiar_password'):
+        permitidos = ('cambiar_password', 'logout', 'static')
+        if request.endpoint not in permitidos:
+            return redirect(url_for('cambiar_password'))
 
 
 # ==================== RATE LIMITING (por IP) ====================
@@ -263,7 +301,11 @@ def login():
             session['nombre'] = resultado[1]
             session['rol'] = resultado[2]
             session['usuario_login'] = usuario
+            session['debe_cambiar_password'] = resultado[3]
 
+            if resultado[3]:
+                # Contraseña temporal o por defecto: obligar a elegir una propia
+                return redirect(url_for('cambiar_password'))
             if next_url:
                 return redirect(next_url)
             return redirect(destino_por_rol(resultado[2]))
@@ -278,6 +320,32 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/cambiar-password', methods=['GET', 'POST'])
+@csrf_required
+def cambiar_password():
+    """Cambio de contraseña obligatorio (primer login o tras un reset del admin)."""
+    if 'usuario_id' not in session:
+        return redirect(url_for('login'))
+    if not session.get('debe_cambiar_password'):
+        return redirect(url_for('index'))
+
+    error = None
+    if request.method == 'POST':
+        nueva = request.form.get('nueva_password', '')
+        confirmar = request.form.get('confirmar_password', '')
+
+        error = validar_password_nueva(nueva, session.get('usuario_login', ''))
+        if not error and nueva != confirmar:
+            error = 'Las contraseñas no coinciden.'
+
+        if not error:
+            db.cambiar_credenciales(session['usuario_id'], nueva_password=nueva)
+            session['debe_cambiar_password'] = False
+            return redirect(destino_por_rol(session['rol']))
+
+    return render_template('cambiar_password.html', error=error)
 
 
 # ==================== RUTAS PARA CAMARERAS ====================
@@ -507,8 +575,8 @@ def mi_cuenta():
             error = 'El nombre de usuario no puede estar vacío.'
         elif nueva_password and nueva_password != confirmar:
             error = 'Las contraseñas nuevas no coinciden.'
-        elif nueva_password and len(nueva_password) < 4:
-            error = 'La contraseña debe tener al menos 4 caracteres.'
+        elif nueva_password:
+            error = validar_password_nueva(nueva_password, nuevo_usuario)
         else:
             usuario_cambio   = nuevo_usuario if nuevo_usuario != session.get('usuario_login') else None
             password_cambio  = nueva_password if nueva_password else None
@@ -709,13 +777,18 @@ def admin_editar_usuario(id):
         return jsonify({'error': 'No autorizado'}), 401
     if request.form['rol'] not in ROLES_VALIDOS:
         return redirect(url_for('admin_panel', error='Rol inválido'))
+    password_nueva = request.form.get('password', '')
     db.actualizar_usuario(
         id,
         request.form['nombre'],
         request.form['usuario'],
-        request.form.get('password', ''),
+        password_nueva,
         request.form['rol']
     )
+    # Si el admin asignó una contraseña temporal a OTRO usuario, esa persona
+    # deberá elegir la suya en su próximo inicio de sesión.
+    if password_nueva and id != session['usuario_id']:
+        db.marcar_cambio_password(id)
     return redirect(url_for('admin_panel'))
 
 

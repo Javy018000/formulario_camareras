@@ -27,4 +27,7 @@ os.environ.setdefault('SECRET_KEY', 'CAMBIA-ESTO-POR-UN-TEXTO-ALEATORIO-LARGO')
 # Genera otro distinto al SECRET_KEY y ponlo también en backup_local.py.
 os.environ.setdefault('BACKUP_TOKEN', 'CAMBIA-ESTO-POR-OTRO-TEXTO-ALEATORIO')
 
+# Cookies de sesión solo por HTTPS (el hosting siempre sirve HTTPS)
+os.environ.setdefault('COOKIES_SEGURAS', '1')
+
 from app import app as application  # noqa: E402

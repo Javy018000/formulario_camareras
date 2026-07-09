@@ -150,6 +150,27 @@ def init_db():
     # Migración de roles: el antiguo 'admin' pasa a ser 'superadmin'
     cursor.execute("UPDATE usuarios SET rol = 'superadmin' WHERE rol = 'admin'")
 
+    # Migración (una sola vez): columna debe_cambiar_password.
+    # - Hashea contraseñas que quedaron en texto plano (usuarios que nunca
+    #   volvieron a entrar desde la migración a hashes).
+    # - Marca con el flag a quien tenga una contraseña por defecto conocida,
+    #   para forzar el cambio en su próximo inicio de sesión.
+    cursor.execute('PRAGMA table_info(usuarios)')
+    columnas = [c[1] for c in cursor.fetchall()]
+    if 'debe_cambiar_password' not in columnas:
+        cursor.execute(
+            'ALTER TABLE usuarios ADD COLUMN debe_cambiar_password INTEGER DEFAULT 0')
+        DEFAULTS_CONOCIDAS = ('1234', '123456', 'admin123', 'hotel123')
+        for uid, pwd in cursor.execute('SELECT id, password FROM usuarios').fetchall():
+            if not str(pwd).startswith(('scrypt:', 'pbkdf2:')):
+                # Texto plano: hashear ya y exigir cambio
+                cursor.execute(
+                    'UPDATE usuarios SET password = ?, debe_cambiar_password = 1 WHERE id = ?',
+                    (generate_password_hash(str(pwd)), uid))
+            elif any(check_password_hash(pwd, d) for d in DEFAULTS_CONOCIDAS):
+                cursor.execute(
+                    'UPDATE usuarios SET debe_cambiar_password = 1 WHERE id = ?', (uid,))
+
     cursor.execute("SELECT COUNT(*) FROM usuarios")
     if cursor.fetchone()[0] == 0:
         usuarios_default = [
@@ -180,36 +201,28 @@ def init_db():
 
 
 def verificar_usuario(usuario, password):
-    """Verifica credenciales. Migra automáticamente contraseñas en texto plano a hash."""
+    """Verifica credenciales.
+
+    Devuelve (id, nombre, rol, debe_cambiar_password) o None.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
-        'SELECT id, nombre, rol, password FROM usuarios WHERE usuario = ? AND activo = 1',
+        'SELECT id, nombre, rol, password, debe_cambiar_password '
+        'FROM usuarios WHERE usuario = ? AND activo = 1',
         (usuario,)
     )
     resultado = cursor.fetchone()
+    conn.close()
 
     if not resultado:
-        conn.close()
         return None
 
-    user_id, nombre, rol, stored_password = resultado
+    user_id, nombre, rol, stored_password, debe_cambiar = resultado
 
     if check_password_hash(stored_password, password):
-        conn.close()
-        return (user_id, nombre, rol)
+        return (user_id, nombre, rol, bool(debe_cambiar))
 
-    # Migración: si la contraseña está en texto plano, actualizar a hash
-    if stored_password == password:
-        cursor.execute(
-            'UPDATE usuarios SET password = ? WHERE id = ?',
-            (generate_password_hash(password), user_id)
-        )
-        conn.commit()
-        conn.close()
-        return (user_id, nombre, rol)
-
-    conn.close()
     return None
 
 
@@ -318,19 +331,37 @@ def obtener_usuarios():
     """Obtiene todos los usuarios (sin contraseña)"""
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    cursor.execute('SELECT id, nombre, usuario, rol, activo FROM usuarios ORDER BY id')
+    cursor.execute('SELECT id, nombre, usuario, rol, activo, debe_cambiar_password '
+                   'FROM usuarios ORDER BY id')
     usuarios = cursor.fetchall()
     conn.close()
     return usuarios
 
 
-def crear_usuario(nombre, usuario, password, rol):
-    """Crea un nuevo usuario con contraseña hasheada"""
+def crear_usuario(nombre, usuario, password, rol, debe_cambiar=True):
+    """Crea un nuevo usuario con contraseña hasheada.
+
+    Por defecto nace con debe_cambiar_password=1: la contraseña asignada es
+    temporal y la persona debe elegir la suya en su primer inicio de sesión.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute(
-        'INSERT INTO usuarios (nombre, usuario, password, rol) VALUES (?, ?, ?, ?)',
-        (nombre, usuario, generate_password_hash(password), rol)
+        'INSERT INTO usuarios (nombre, usuario, password, rol, debe_cambiar_password) '
+        'VALUES (?, ?, ?, ?, ?)',
+        (nombre, usuario, generate_password_hash(password), rol, 1 if debe_cambiar else 0)
+    )
+    conn.commit()
+    conn.close()
+
+
+def marcar_cambio_password(user_id, requerido=True):
+    """Activa/desactiva el flag de cambio de contraseña obligatorio."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(
+        'UPDATE usuarios SET debe_cambiar_password = ? WHERE id = ?',
+        (1 if requerido else 0, user_id)
     )
     conn.commit()
     conn.close()
@@ -439,26 +470,27 @@ def verificar_password_por_id(user_id, password):
     conn.close()
     if not resultado:
         return False
-    stored = resultado[0]
-    if check_password_hash(stored, password):
-        return True
-    return stored == password  # compatibilidad con contraseñas antiguas en texto plano
+    return check_password_hash(resultado[0], password)
 
 
 def cambiar_credenciales(user_id, nuevo_usuario=None, nueva_password=None):
-    """Permite a un usuario actualizar su propio usuario y/o contraseña."""
+    """Permite a un usuario actualizar su propio usuario y/o contraseña.
+
+    Al establecer contraseña propia se limpia el flag de cambio obligatorio.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     if nuevo_usuario and nueva_password:
         cursor.execute(
-            'UPDATE usuarios SET usuario = ?, password = ? WHERE id = ?',
+            'UPDATE usuarios SET usuario = ?, password = ?, debe_cambiar_password = 0 '
+            'WHERE id = ?',
             (nuevo_usuario, generate_password_hash(nueva_password), user_id)
         )
     elif nuevo_usuario:
         cursor.execute('UPDATE usuarios SET usuario = ? WHERE id = ?', (nuevo_usuario, user_id))
     elif nueva_password:
         cursor.execute(
-            'UPDATE usuarios SET password = ? WHERE id = ?',
+            'UPDATE usuarios SET password = ?, debe_cambiar_password = 0 WHERE id = ?',
             (generate_password_hash(nueva_password), user_id)
         )
     conn.commit()
