@@ -180,8 +180,60 @@
         .btn-proceso:hover { background: #1c7ed6; }
         .btn-resolver { background: #40c057; color: white; }
         .btn-resolver:hover { background: #2f9e44; }
+        .btn-soltar { background: #f1f3f5; color: #666; }
+        .btn-soltar:hover { background: #e0e0e0; }
         .btn-foto { background: #f0f0f0; color: #555; text-decoration: none; padding: 9px 18px; border-radius: 8px; font-size: 13px; font-weight: 600; }
         .btn-foto:hover { background: #e0e0e0; }
+
+        /* Asignación */
+        .asignacion {
+            background: #e7f5ff;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            color: #1864ab;
+            margin-bottom: 12px;
+        }
+        .asignacion.mia { background: #ebfbee; color: #2b8a3e; }
+        .asignacion .por { color: #868e96; font-size: 12px; }
+
+        .libre {
+            background: #fff9db;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+            color: #856404;
+            margin-bottom: 12px;
+        }
+
+        .asignar-form {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .asignar-form select {
+            padding: 8px 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 13px;
+            max-width: 220px;
+        }
+
+        .btn-asignar { background: #7048e8; color: white; }
+        .btn-asignar:hover { background: #5f3dc4; }
+
+        .avisos { margin-bottom: 16px; }
+        .aviso {
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        .aviso.aviso-warn { background: #fff3cd; color: #856404; border-left: 4px solid #ffc107; }
+        .aviso.aviso-exito { background: #d4edda; color: #155724; border-left: 4px solid #40c057; }
 
         .empty-state { text-align: center; padding: 60px 20px; color: #999; }
         .empty-state .icono { font-size: 60px; margin-bottom: 15px; }
@@ -229,25 +281,52 @@
             </div>
         </div>
 
+        <!-- Avisos -->
+        {% with mensajes = get_flashed_messages(with_categories=true) %}
+        {% if mensajes %}
+        <div class="avisos">
+            {% for categoria, mensaje in mensajes %}
+            <div class="aviso aviso-{{ 'exito' if categoria == 'exito' else 'warn' }}">
+                {{ '✅' if categoria == 'exito' else '⚠️' }} {{ mensaje }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        {% set m = '&mias=1' if solo_mias else '' %}
+
         <!-- Filtros -->
         <div class="filtros">
-            <a href="/novedades?estado=abiertas&area={{ area_filtro }}"
+            <a href="/novedades?estado=abiertas&area={{ area_filtro }}{{ m }}"
                class="filtro-btn {{ 'activo' if filtro == 'abiertas' }}">Abiertas</a>
-            <a href="/novedades?estado=resuelta&area={{ area_filtro }}"
+            <a href="/novedades?estado=resuelta&area={{ area_filtro }}{{ m }}"
                class="filtro-btn {{ 'activo' if filtro == 'resuelta' }}">Resueltas</a>
-            <a href="/novedades?estado=todas&area={{ area_filtro }}"
+            <a href="/novedades?estado=todas&area={{ area_filtro }}{{ m }}"
                class="filtro-btn {{ 'activo' if filtro == 'todas' }}">Todas</a>
+
+            <span class="filtro-sep">|</span>
+            <a href="/novedades?estado={{ filtro }}&area={{ area_filtro }}{{ '&mias=1' if not solo_mias }}"
+               class="filtro-btn {{ 'activo' if solo_mias }}">🙋 Mis tareas</a>
 
             {% if areas|length > 1 %}
             <span class="filtro-sep">|</span>
-            <a href="/novedades?estado={{ filtro }}"
+            <a href="/novedades?estado={{ filtro }}{{ m }}"
                class="filtro-btn {{ 'activo' if not area_filtro }}">Ambas áreas</a>
-            <a href="/novedades?estado={{ filtro }}&area=mantenimiento"
+            <a href="/novedades?estado={{ filtro }}&area=mantenimiento{{ m }}"
                class="filtro-btn {{ 'activo' if area_filtro == 'mantenimiento' }}">🔧 Mantenimiento</a>
-            <a href="/novedades?estado={{ filtro }}&area=aseo"
+            <a href="/novedades?estado={{ filtro }}&area=aseo{{ m }}"
                class="filtro-btn {{ 'activo' if area_filtro == 'aseo' }}">🧹 Aseo</a>
             {% endif %}
         </div>
+
+        {# Campos que todos los formularios repiten (CSRF + filtros activos) #}
+        {% set campos_ocultos %}
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="filtro" value="{{ filtro }}">
+            <input type="hidden" name="area_filtro" value="{{ area_filtro }}">
+            <input type="hidden" name="mias" value="{{ '1' if solo_mias else '' }}">
+        {% endset %}
 
         <!-- Lista -->
         {% if novedades %}
@@ -276,11 +355,30 @@
                     Reportado por {{ n[5].title() if n[5] else 'huésped' }} · {{ n[7] }} a las {{ n[8][:5] }}
                 </div>
 
-                {% if n[11] %}
-                <div class="novedad-gestion">
-                    👤 <strong>{{ n[11] }}</strong> — {{ n[12] }}
-                    {% if n[13] %}<br>📝 {{ n[13] }}{% endif %}
-                </div>
+                {# Contexto de esta tarjeta #}
+                {% set libre = n[14] is none %}
+                {% set es_mia = n[14] == yo %}
+                {% set asignada_por_jefe = n[16] %}
+                {% set soy_jefe = n[2] in personal %}
+
+                {% if n[9] == 'resuelta' %}
+                    {% if n[11] %}
+                    <div class="novedad-gestion">
+                        ✅ Resuelta por <strong>{{ n[11] }}</strong> — {{ n[12] }}
+                        {% if n[13] %}<br>📝 {{ n[13] }}{% endif %}
+                    </div>
+                    {% endif %}
+                {% elif libre %}
+                    <div class="libre">🙋 Nadie se ha hecho cargo todavía</div>
+                {% else %}
+                    <div class="asignacion {{ 'mia' if es_mia }}">
+                        👤 {{ 'La estás atendiendo tú' if es_mia else 'Atiende: ' ~ n[15] }}
+                        {% if asignada_por_jefe %}
+                        <div class="por">Asignada por {{ n[16] }} · {{ n[17][:16] if n[17] }}</div>
+                        {% else %}
+                        <div class="por">Se hizo cargo por su cuenta · {{ n[17][:16] if n[17] }}</div>
+                        {% endif %}
+                    </div>
                 {% endif %}
 
                 <div class="acciones">
@@ -288,45 +386,113 @@
                     <a href="/uploads/{{ n[10] }}" target="_blank" class="btn-foto">📷 Ver foto</a>
                     {% endif %}
 
-                    {% if n[9] == 'pendiente' %}
-                    <form method="POST" action="/novedades/{{ n[0] }}/estado" style="display:inline">
-                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="estado" value="en_proceso">
-                        <input type="hidden" name="filtro" value="{{ filtro }}">
-                        <input type="hidden" name="area_filtro" value="{{ area_filtro }}">
-                        <button type="submit" class="btn btn-proceso">🔄 Marcar en proceso</button>
-                    </form>
-                    {% endif %}
-
                     {% if n[9] != 'resuelta' %}
-                    <form method="POST" action="/novedades/{{ n[0] }}/estado" style="display:inline"
-                          onsubmit="return agregarNota(this)">
-                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                        <input type="hidden" name="estado" value="resuelta">
-                        <input type="hidden" name="nota" value="">
-                        <input type="hidden" name="filtro" value="{{ filtro }}">
-                        <input type="hidden" name="area_filtro" value="{{ area_filtro }}">
-                        <button type="submit" class="btn btn-resolver">✅ Marcar resuelta</button>
-                    </form>
+
+                        {# Cualquiera del área puede hacerse cargo si está libre #}
+                        {% if libre %}
+                        <form method="POST" action="/novedades/{{ n[0] }}/tomar" style="display:inline"
+                              onsubmit="return confirm('¿Seguro que quieres hacerte cargo de esta tarea?\n\nQuedará asignada a ti y solo tú podrás finalizarla.')">
+                            {{ campos_ocultos }}
+                            <button type="submit" class="btn btn-proceso">🙋 Atender tarea</button>
+                        </form>
+                        {% endif %}
+
+                        {# El dueño finaliza; y puede soltarla solo si él mismo la tomó #}
+                        {% if es_mia %}
+                        <form method="POST" action="/novedades/{{ n[0] }}/finalizar" style="display:inline"
+                              onsubmit="return agregarNota(this)">
+                            {{ campos_ocultos }}
+                            <input type="hidden" name="nota" value="">
+                            <button type="submit" class="btn btn-resolver">✅ Finalizar tarea</button>
+                        </form>
+                            {% if not asignada_por_jefe %}
+                            <form method="POST" action="/novedades/{{ n[0] }}/soltar" style="display:inline"
+                                  onsubmit="return confirm('¿Soltar esta tarea?\n\nVolverá a quedar libre para que otra persona la atienda.')">
+                                {{ campos_ocultos }}
+                                <button type="submit" class="btn btn-soltar">↩️ Soltar tarea</button>
+                            </form>
+                            {% endif %}
+                        {% endif %}
+
+                        {# El jefe puede finalizar la tarea de otro (con aviso) #}
+                        {% if soy_jefe and not libre and not es_mia %}
+                        <form method="POST" action="/novedades/{{ n[0] }}/finalizar" style="display:inline"
+                              onsubmit="return confirmarFinalizarDeOtro(this, '{{ n[15] }}')">
+                            {{ campos_ocultos }}
+                            <input type="hidden" name="nota" value="">
+                            <button type="submit" class="btn btn-resolver">✅ Finalizar tarea</button>
+                        </form>
+                        {% endif %}
                     {% endif %}
                 </div>
+
+                {# Los jefes asignan o reasignan a su personal #}
+                {% if soy_jefe and n[9] != 'resuelta' %}
+                <form method="POST" action="/novedades/{{ n[0] }}/asignar" class="asignar-form"
+                      onsubmit="return confirmarAsignar(this)">
+                    {{ campos_ocultos }}
+                    <select name="usuario_id" required>
+                        <option value="" disabled selected>
+                            {{ 'Reasignar a…' if not libre else 'Asignar a…' }}</option>
+                        {% for u in personal[n[2]] %}
+                        <option value="{{ u[0] }}" {{ 'disabled' if u[0] == n[14] }}>
+                            {{ u[1] }}{{ ' (actual)' if u[0] == n[14] }}</option>
+                        {% endfor %}
+                        {% if not libre %}
+                        <option value="liberar">— Dejar libre —</option>
+                        {% endif %}
+                    </select>
+                    <button type="submit" class="btn btn-asignar">📌 Asignar</button>
+                </form>
+                {% endif %}
             </div>
             {% endfor %}
         {% else %}
         <div class="empty-state">
             <div class="icono">🎉</div>
+            {% if solo_mias %}
+            <h3>No tienes tareas asignadas</h3>
+            <p>Cuando tomes una tarea o te asignen una, aparecerá aquí.</p>
+            {% else %}
             <h3>Sin novedades {{ 'abiertas' if filtro == 'abiertas' else '' }}</h3>
             <p>Cuando un huésped reporte algo, aparecerá aquí.</p>
+            {% endif %}
         </div>
         {% endif %}
     </div>
 
     <script>
         function agregarNota(form) {
+            if (!confirm('¿Finalizar esta tarea?\n\nQuedará marcada como resuelta a tu nombre.')) {
+                return false;
+            }
             const nota = prompt('Nota de resolución (opcional):', '');
             if (nota === null) return false;   // canceló
             form.querySelector('input[name="nota"]').value = nota;
             return true;
+        }
+
+        function confirmarFinalizarDeOtro(form, duenoNombre) {
+            if (!confirm('⚠️ Esta tarea la está atendiendo ' + duenoNombre + '.\n\n' +
+                         '¿Seguro que quieres finalizarla tú? Quedará registrada a tu nombre.')) {
+                return false;
+            }
+            const nota = prompt('Nota de resolución (opcional):', '');
+            if (nota === null) return false;
+            form.querySelector('input[name="nota"]').value = nota;
+            return true;
+        }
+
+        function confirmarAsignar(form) {
+            const sel = form.querySelector('select[name="usuario_id"]');
+            if (!sel.value) return false;
+            if (sel.value === 'liberar') {
+                return confirm('¿Dejar esta tarea libre?\n\n' +
+                               'Quedará sin responsable y cualquiera del área podrá atenderla.');
+            }
+            const nombre = sel.options[sel.selectedIndex].text.trim();
+            return confirm('¿Asignar esta tarea a ' + nombre + '?\n\n' +
+                           'Solo esa persona (o un jefe) podrá finalizarla, y no podrá soltarla.');
         }
 
         // Auto-refresh cada 60s para ver novedades nuevas

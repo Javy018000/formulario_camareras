@@ -1,5 +1,5 @@
 from flask import (Flask, render_template, request, redirect, url_for, session,
-                   jsonify, send_file, abort)
+                   jsonify, send_file, abort, flash)
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -372,7 +372,12 @@ def formulario_limpieza():
     if 'usuario_id' in session and session['rol'] == 'camarera':
         if not habitacion:
             return redirect(url_for('seleccionar_habitacion'))
-        return render_template('formulario.html', habitacion=habitacion)
+        # Lo que el huésped de ESTA habitación reportó y sigue abierto
+        pendientes = db.obtener_novedades_abiertas_habitacion(habitacion, 'aseo')
+        return render_template('formulario.html',
+                               habitacion=habitacion,
+                               novedades=pendientes,
+                               yo=session['usuario_id'])
 
     if not habitacion:
         return redirect(url_for('login'))
@@ -542,9 +547,25 @@ def guardar_reporte():
 
         reporte_id = db.guardar_reporte(datos)
 
+        # Cerrar las novedades de aseo que la camarera marcó como resueltas.
+        # La BD valida que sean de esta habitación y estén libres o sean suyas.
+        resueltas = 0
+        for nid in request.form.getlist('resolver_novedades[]'):
+            try:
+                if db.resolver_novedad_en_limpieza(int(nid), habitacion,
+                                                   session['usuario_id'], session['nombre']):
+                    resueltas += 1
+            except ValueError:
+                pass
+
+        mensaje = f'Reporte de habitación {habitacion} guardado correctamente'
+        if resueltas:
+            mensaje += f' y {resueltas} novedad{"es" if resueltas > 1 else ""} del huésped resuelta'
+            mensaje += 's' if resueltas > 1 else ''
+
         return jsonify({
             'success': True,
-            'message': f'Reporte de habitación {habitacion} guardado correctamente',
+            'message': mensaje,
             'reporte_id': reporte_id
         })
 
@@ -641,6 +662,18 @@ def detalle_reporte(reporte_id):
 
 ROLES_NOVEDADES = tuple(set(ROLES_AREA_ASEO) | set(ROLES_AREA_MANT))
 
+# Quién manda en cada área: puede asignar, reasignar, liberar y finalizar
+# cualquier tarea de su área (válvula de escape si alguien no vuelve).
+JEFES_POR_AREA = {
+    'aseo': ('jefa',) + ROLES_HOTEL,
+    'mantenimiento': ('jefe_mantenimiento',) + ROLES_HOTEL,
+}
+# Personal al que se le pueden asignar tareas de cada área
+PERSONAL_POR_AREA = {
+    'aseo': ('camarera', 'jefa'),
+    'mantenimiento': ('mantenimiento', 'jefe_mantenimiento'),
+}
+
 
 def _puede_gestionar(rol, area):
     if area == 'aseo':
@@ -648,6 +681,26 @@ def _puede_gestionar(rol, area):
     if area == 'mantenimiento':
         return rol in ROLES_AREA_MANT
     return False
+
+
+def _es_jefe_de(rol, area):
+    return rol in JEFES_POR_AREA.get(area, ())
+
+
+def _volver_a_novedades():
+    """Redirige de vuelta al listado conservando los filtros activos."""
+    return redirect(url_for('novedades',
+                            estado=request.form.get('filtro', 'abiertas'),
+                            area=request.form.get('area_filtro', ''),
+                            mias=request.form.get('mias', '')))
+
+
+def _novedad_gestionable(novedad_id):
+    """Devuelve la novedad si el usuario actual puede tocarla, si no None."""
+    novedad = db.obtener_novedad(novedad_id)
+    if not novedad or not _puede_gestionar(session['rol'], novedad[2]):
+        return None
+    return novedad
 
 
 @app.route('/novedades')
@@ -663,8 +716,16 @@ def novedades():
     area_filtro = request.args.get('area', '')
     areas_consulta = [area_filtro] if area_filtro in areas else areas
 
-    lista = db.obtener_novedades(areas_consulta, filtro)
+    solo_mias = request.args.get('mias') == '1'
+    lista = db.obtener_novedades(areas_consulta, filtro,
+                                 asignadas_a=session['usuario_id'] if solo_mias else None)
     stats = db.estadisticas_novedades()
+
+    # Personal al que este usuario puede asignarle tareas, por área
+    personal = {}
+    for area in areas:
+        if _es_jefe_de(rol, area):
+            personal[area] = db.obtener_usuarios_por_roles(PERSONAL_POR_AREA[area])
 
     # Botón "volver" según el rol (mantenimiento vive en esta página)
     volver = {
@@ -680,26 +741,94 @@ def novedades():
                            areas=areas,
                            area_filtro=area_filtro,
                            filtro=filtro,
+                           solo_mias=solo_mias,
                            stats=stats,
+                           personal=personal,
+                           yo=session['usuario_id'],
                            volver=volver)
 
 
-@app.route('/novedades/<int:novedad_id>/estado', methods=['POST'])
+@app.route('/novedades/<int:novedad_id>/tomar', methods=['POST'])
 @csrf_required
 @roles_required(*ROLES_NOVEDADES)
-def novedad_cambiar_estado(novedad_id):
-    novedad = db.obtener_novedad(novedad_id)
-    if not novedad or not _puede_gestionar(session['rol'], novedad[2]):
+def novedad_tomar(novedad_id):
+    """Un trabajador se hace cargo de una tarea libre."""
+    novedad = _novedad_gestionable(novedad_id)
+    if not novedad:
         return redirect(url_for('novedades'))
 
-    estado = request.form.get('estado', '')
-    if estado in ('pendiente', 'en_proceso', 'resuelta'):
-        nota = request.form.get('nota', '').strip()
-        db.cambiar_estado_novedad(novedad_id, estado, session['nombre'], nota)
+    tomada, ocupada_por = db.tomar_novedad(novedad_id, session['usuario_id'], session['nombre'])
+    if not tomada:
+        flash(f'Esa tarea ya la tomó {ocupada_por}.' if ocupada_por
+              else 'Esa tarea ya no está disponible.', 'aviso')
+    return _volver_a_novedades()
 
-    return redirect(url_for('novedades',
-                            estado=request.form.get('filtro', 'abiertas'),
-                            area=request.form.get('area_filtro', '')))
+
+@app.route('/novedades/<int:novedad_id>/soltar', methods=['POST'])
+@csrf_required
+@roles_required(*ROLES_NOVEDADES)
+def novedad_soltar(novedad_id):
+    """Suelta la tarea. El dueño solo puede si él mismo la tomó; un jefe siempre."""
+    novedad = _novedad_gestionable(novedad_id)
+    if not novedad:
+        return redirect(url_for('novedades'))
+
+    es_jefe = _es_jefe_de(session['rol'], novedad[2])
+    liberada = db.liberar_novedad(novedad_id, session['usuario_id'],
+                                  solo_autoasignada=not es_jefe)
+    if not liberada:
+        flash('No puedes soltar esa tarea: te la asignó un jefe de área.', 'aviso')
+    return _volver_a_novedades()
+
+
+@app.route('/novedades/<int:novedad_id>/asignar', methods=['POST'])
+@csrf_required
+@roles_required(*ROLES_NOVEDADES)
+def novedad_asignar(novedad_id):
+    """Un jefe asigna o reasigna la tarea a alguien de su área."""
+    novedad = _novedad_gestionable(novedad_id)
+    if not novedad or not _es_jefe_de(session['rol'], novedad[2]):
+        return redirect(url_for('novedades'))
+
+    destino = request.form.get('usuario_id', '')
+    if destino == 'liberar':
+        db.liberar_novedad(novedad_id)
+        return _volver_a_novedades()
+
+    # El destinatario debe existir y pertenecer al área de la novedad
+    validos = {str(u[0]): u[1]
+               for u in db.obtener_usuarios_por_roles(PERSONAL_POR_AREA[novedad[2]])}
+    if destino not in validos:
+        flash('Esa persona no puede atender tareas de esta área.', 'aviso')
+        return _volver_a_novedades()
+
+    db.asignar_novedad(novedad_id, int(destino), validos[destino], session['nombre'])
+    flash(f'Tarea asignada a {validos[destino]}.', 'exito')
+    return _volver_a_novedades()
+
+
+@app.route('/novedades/<int:novedad_id>/finalizar', methods=['POST'])
+@csrf_required
+@roles_required(*ROLES_NOVEDADES)
+def novedad_finalizar(novedad_id):
+    """Finaliza la tarea: solo su dueño, o un jefe del área."""
+    novedad = _novedad_gestionable(novedad_id)
+    if not novedad:
+        return redirect(url_for('novedades'))
+
+    soy_dueno = novedad[14] == session['usuario_id']
+    es_jefe = _es_jefe_de(session['rol'], novedad[2])
+    if not (soy_dueno or es_jefe):
+        flash(f'Solo {novedad[15] or "quien la atiende"} puede finalizar esa tarea.', 'aviso')
+        return _volver_a_novedades()
+
+    if novedad[14] is None and not soy_dueno:
+        flash('Nadie se ha hecho cargo de esa tarea todavía.', 'aviso')
+        return _volver_a_novedades()
+
+    nota = request.form.get('nota', '').strip()
+    db.finalizar_novedad(novedad_id, session['nombre'], nota)
+    return _volver_a_novedades()
 
 
 @app.route('/api/novedades-abiertas')

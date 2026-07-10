@@ -150,6 +150,28 @@ def init_db():
     # Migración de roles: el antiguo 'admin' pasa a ser 'superadmin'
     cursor.execute("UPDATE usuarios SET rol = 'superadmin' WHERE rol = 'admin'")
 
+    # Migración: asignación de novedades (quién atiende cada tarea).
+    cursor.execute('PRAGMA table_info(novedades)')
+    cols_nov = [c[1] for c in cursor.fetchall()]
+    if 'asignado_a' not in cols_nov:
+        cursor.execute('ALTER TABLE novedades ADD COLUMN asignado_a INTEGER')
+        cursor.execute('ALTER TABLE novedades ADD COLUMN asignado_a_nombre TEXT')
+        cursor.execute('ALTER TABLE novedades ADD COLUMN asignado_por TEXT')
+        cursor.execute('ALTER TABLE novedades ADD COLUMN fecha_asignacion TEXT')
+        # Las que ya estaban en proceso quedan asignadas a quien las gestionaba
+        ahora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        en_curso = cursor.execute(
+            "SELECT id, gestionado_por FROM novedades "
+            "WHERE estado = 'en_proceso' AND gestionado_por IS NOT NULL "
+            "AND gestionado_por != ''").fetchall()
+        for nid, quien in en_curso:
+            fila = cursor.execute(
+                'SELECT id FROM usuarios WHERE nombre = ?', (quien,)).fetchone()
+            cursor.execute(
+                'UPDATE novedades SET asignado_a = ?, asignado_a_nombre = ?, '
+                'fecha_asignacion = ? WHERE id = ?',
+                (fila[0] if fila else None, quien, ahora, nid))
+
     # Migración (una sola vez): columna debe_cambiar_password.
     # - Hashea contraseñas que quedaron en texto plano (usuarios que nunca
     #   volvieron a entrar desde la migración a hashes).
@@ -501,7 +523,10 @@ def cambiar_credenciales(user_id, nuevo_usuario=None, nueva_password=None):
 
 _NOV_COLS = ('id, habitacion_numero, area, categoria, descripcion, huesped_nombre, '
              'huesped_cedula, fecha, hora, estado, foto_path, gestionado_por, '
-             'fecha_gestion, nota_gestion')
+             'fecha_gestion, nota_gestion, asignado_a, asignado_a_nombre, '
+             'asignado_por, fecha_asignacion')
+# Índices útiles en plantillas: 14=asignado_a  15=asignado_a_nombre
+#                               16=asignado_por (jefe)  17=fecha_asignacion
 
 _ORDEN_ESTADO = "CASE estado WHEN 'pendiente' THEN 0 WHEN 'en_proceso' THEN 1 ELSE 2 END"
 
@@ -532,8 +557,12 @@ def crear_novedad(datos):
     return novedad_id
 
 
-def obtener_novedades(areas, filtro='abiertas'):
-    """Novedades de las áreas dadas. filtro: 'abiertas', 'todas' o un estado."""
+def obtener_novedades(areas, filtro='abiertas', asignadas_a=None):
+    """Novedades de las áreas dadas.
+
+    filtro: 'abiertas', 'todas' o un estado concreto.
+    asignadas_a: si se pasa un id de usuario, solo devuelve sus tareas.
+    """
     if not areas:
         return []
     conn = sqlite3.connect(DB_NAME)
@@ -549,8 +578,30 @@ def obtener_novedades(areas, filtro='abiertas'):
         sql += ' AND estado = ?'
         params.append(filtro)
 
+    if asignadas_a is not None:
+        sql += ' AND asignado_a = ?'
+        params.append(asignadas_a)
+
     sql += f' ORDER BY {_ORDEN_ESTADO}, fecha DESC, hora DESC'
     cursor.execute(sql, params)
+    novedades = cursor.fetchall()
+    conn.close()
+    return novedades
+
+
+def obtener_novedades_abiertas_habitacion(habitacion, area):
+    """Novedades sin resolver de una habitación y área concretas.
+
+    Se usa para mostrarle a la camarera, dentro del formulario de limpieza,
+    lo que el huésped de ESA habitación reportó.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute(f'''
+        SELECT {_NOV_COLS} FROM novedades
+        WHERE habitacion_numero = ? AND area = ? AND estado != 'resuelta'
+        ORDER BY fecha, hora
+    ''', (habitacion, area))
     novedades = cursor.fetchall()
     conn.close()
     return novedades
@@ -579,17 +630,127 @@ def obtener_novedades_habitacion(habitacion, limite=8):
     return novedades
 
 
-def cambiar_estado_novedad(novedad_id, estado, gestionado_por, nota=''):
+def tomar_novedad(novedad_id, user_id, nombre):
+    """Un trabajador se hace cargo de una tarea libre.
+
+    Devuelve (True, None) si la tomó, o (False, quien_la_tiene) si otra persona
+    se le adelantó. La condición `asignado_a IS NULL` dentro del UPDATE evita
+    que dos personas que pulsan a la vez se pisen la tarea.
+    """
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     cursor.execute('''
         UPDATE novedades
-        SET estado = ?, gestionado_por = ?, fecha_gestion = ?, nota_gestion = ?
+        SET asignado_a = ?, asignado_a_nombre = ?, asignado_por = NULL,
+            fecha_asignacion = ?, estado = 'en_proceso'
+        WHERE id = ? AND asignado_a IS NULL AND estado != 'resuelta'
+    ''', (user_id, nombre, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), novedad_id))
+    tomada = cursor.rowcount == 1
+    conn.commit()
+
+    ocupada_por = None
+    if not tomada:
+        fila = cursor.execute(
+            'SELECT asignado_a_nombre FROM novedades WHERE id = ?', (novedad_id,)).fetchone()
+        ocupada_por = fila[0] if fila else None
+
+    conn.close()
+    return tomada, ocupada_por
+
+
+def asignar_novedad(novedad_id, user_id, nombre, asignado_por):
+    """Un jefe asigna (o reasigna) la tarea a una persona de su área."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE novedades
+        SET asignado_a = ?, asignado_a_nombre = ?, asignado_por = ?,
+            fecha_asignacion = ?,
+            estado = CASE WHEN estado = 'resuelta' THEN estado ELSE 'en_proceso' END
         WHERE id = ?
-    ''', (estado, gestionado_por,
-          datetime.now().strftime('%Y-%m-%d %H:%M:%S'), nota, novedad_id))
+    ''', (user_id, nombre, asignado_por,
+          datetime.now().strftime('%Y-%m-%d %H:%M:%S'), novedad_id))
     conn.commit()
     conn.close()
+
+
+def liberar_novedad(novedad_id, user_id=None, solo_autoasignada=False):
+    """Deja la tarea sin dueño y vuelve a 'pendiente'.
+
+    Con solo_autoasignada=True únicamente la suelta si la pidió su propio dueño
+    y nadie se la había asignado (regla: si un jefe te la asignó, no la sueltas).
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    sql = ("UPDATE novedades SET asignado_a = NULL, asignado_a_nombre = NULL, "
+           "asignado_por = NULL, fecha_asignacion = NULL, estado = 'pendiente' "
+           "WHERE id = ? AND estado != 'resuelta'")
+    params = [novedad_id]
+    if solo_autoasignada:
+        sql += ' AND asignado_a = ? AND asignado_por IS NULL'
+        params.append(user_id)
+
+    cursor.execute(sql, params)
+    liberada = cursor.rowcount == 1
+    conn.commit()
+    conn.close()
+    return liberada
+
+
+def finalizar_novedad(novedad_id, quien, nota=''):
+    """Marca la tarea como resuelta."""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        UPDATE novedades
+        SET estado = 'resuelta', gestionado_por = ?, fecha_gestion = ?, nota_gestion = ?
+        WHERE id = ? AND estado != 'resuelta'
+    ''', (quien, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), nota, novedad_id))
+    ok = cursor.rowcount == 1
+    conn.commit()
+    conn.close()
+    return ok
+
+
+def resolver_novedad_en_limpieza(novedad_id, habitacion, user_id, nombre):
+    """Cierra una novedad de aseo desde el formulario de limpieza.
+
+    Solo si es de esa habitación, es de aseo, no está resuelta y está libre o
+    ya es de esa camarera. Si estaba libre, se la asigna de paso.
+    """
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    ahora = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    cursor.execute('''
+        UPDATE novedades
+        SET estado = 'resuelta', gestionado_por = ?, fecha_gestion = ?,
+            nota_gestion = 'Resuelto durante la limpieza',
+            asignado_a = COALESCE(asignado_a, ?),
+            asignado_a_nombre = COALESCE(asignado_a_nombre, ?),
+            fecha_asignacion = COALESCE(fecha_asignacion, ?)
+        WHERE id = ? AND habitacion_numero = ? AND area = 'aseo'
+          AND estado != 'resuelta'
+          AND (asignado_a IS NULL OR asignado_a = ?)
+    ''', (nombre, ahora, user_id, nombre, ahora, novedad_id, habitacion, user_id))
+    ok = cursor.rowcount == 1
+    conn.commit()
+    conn.close()
+    return ok
+
+
+def obtener_usuarios_por_roles(roles):
+    """Personal activo con alguno de los roles dados (para asignar tareas)."""
+    if not roles:
+        return []
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    marcas = ','.join('?' * len(roles))
+    cursor.execute(
+        f'SELECT id, nombre, rol FROM usuarios WHERE activo = 1 AND rol IN ({marcas}) '
+        'ORDER BY nombre', tuple(roles))
+    usuarios = cursor.fetchall()
+    conn.close()
+    return usuarios
 
 
 def contar_novedades_abiertas():

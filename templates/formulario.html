@@ -245,6 +245,63 @@
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+
+        /* Novedades reportadas por el huésped de esta habitación */
+        .card-novedad {
+            border-left: 5px solid #ffc107;
+            background: #fffdf5;
+        }
+
+        .novedad-item {
+            padding: 12px 0;
+            border-bottom: 1px solid #f0e6c8;
+        }
+        .novedad-item:last-child { border-bottom: none; }
+
+        .novedad-item .novedad-cat {
+            font-weight: 700;
+            color: #856404;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+
+        .novedad-item .novedad-desc {
+            color: #555;
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 6px;
+        }
+
+        .novedad-item .novedad-meta { font-size: 12px; color: #aaa; margin-bottom: 10px; }
+
+        .resolver-check {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            background: #fff;
+            border: 2px solid #ffe08a;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #856404;
+        }
+
+        .resolver-check:hover { background: #fff9e6; }
+
+        .resolver-check input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-right: 12px;
+            cursor: pointer;
+        }
+
+        .asignada-otro {
+            background: #e7f5ff;
+            color: #1864ab;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 13px;
+        }
     </style>
 </head>
 <body>
@@ -261,6 +318,33 @@
             <input type="hidden" name="habitacion" value="{{ habitacion }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="hora_inicio" id="hora_inicio">
+
+            <!-- Novedades que el huésped reportó de ESTA habitación -->
+            {% if novedades %}
+            <div class="card card-novedad">
+                <div class="section-title">
+                    🔔 El huésped reportó
+                </div>
+                {% for n in novedades %}
+                <div class="novedad-item">
+                    <div class="novedad-cat">{{ n[3] }}</div>
+                    <div class="novedad-desc">{{ n[4] }}</div>
+                    <div class="novedad-meta">
+                        Folio NV-{{ '%04d'|format(n[0]) }} · {{ n[7] }} a las {{ n[8][:5] }}
+                    </div>
+
+                    {% if n[14] is none or n[14] == yo %}
+                        <label class="resolver-check">
+                            <input type="checkbox" name="resolver_novedades[]" value="{{ n[0] }}">
+                            <span>Ya lo resolví</span>
+                        </label>
+                    {% else %}
+                        <div class="asignada-otro">👤 La está atendiendo {{ n[15] }}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
 
             <!-- Tareas realizadas -->
             <div class="card">
